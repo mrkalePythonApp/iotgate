@@ -258,10 +258,9 @@ def setup_cmdline():
     if modUtils.linux():
         log_folder = '/var/log'
     elif modUtils.windows():
-        log_folder = 'c:/Temp'
-    else:
-        log_folder = '.'
-    plugin_folder = os.path.abspath('.')
+        log_folder = modUtils.envdir('TEMP')
+    # Plugins folder default
+    plugin_folder = modUtils.envdir(Script.name.upper() + '_PLUGINS')
 
     parser = argparse.ArgumentParser(
         description='IoT gate and MQTT client, version '
