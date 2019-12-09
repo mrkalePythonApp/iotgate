@@ -61,6 +61,7 @@ cmdline = None  # Object with command line arguments
 logger = None  # Object with standard logging
 config = None  # Object with MQTT configuration file processing
 mqtt = None  # Object for MQTT broker manipulation
+iot = None  # Object for IoT core
 
 
 ###############################################################################
@@ -260,6 +261,7 @@ def setup_cmdline():
         log_folder = 'c:/Temp'
     else:
         log_folder = '.'
+    plugin_folder = os.path.abspath('.')
 
     parser = argparse.ArgumentParser(
         description='IoT gate and MQTT client, version '
@@ -271,7 +273,7 @@ def setup_cmdline():
         type=argparse.FileType('r'),
         nargs='?',
         default=config_file,
-        help='Configuration INI file, default: ' + config_file
+        help=f'Configuration INI file, default "{config_file}"'
     )
     # Options
     parser.add_argument(
@@ -295,12 +297,17 @@ def setup_cmdline():
     parser.add_argument(
         '-d', '--logdir',
         default=log_folder,
-        help='Folder of a log file, default ' + log_folder
+        help=f'Folder of a log file, default "{log_folder}"'
     )
     parser.add_argument(
         '-c', '--configuration',
         action='store_true',
         help='''Print configuration parameters in form of INI file content.'''
+    )
+    parser.add_argument(
+        '-p', '--plugindir',
+        default=plugin_folder,
+        help=f'Folder with plugins, default "{plugin_folder}"'
     )
     # Process command line arguments
     global cmdline
