@@ -72,22 +72,27 @@ devices = {}  # Dictionary with device plugins
 def action_exit():
     """Perform all activities right before exiting the script."""
     # modTimer.stop_all()
-    # mqtt_publish_lwt(iot.Status.OFFLINE)
-    # mqtt.disconnect()
+    mqtt_publish_lwt(modIot.Status.OFFLINE)
+    mqtt.disconnect()
 
 def plugins_load():
     plugins_path, _, module_files = next(os.walk(cmdline.plugindir))
     # Import plugin modules
     for module_file in module_files:
-        file_path = os.path.join(plugins_path,
-            f'{Script.name}_{module_file}')
+        module_path = os.path.join(plugins_path, module_file)
         try:
-            spec = imp.spec_from_file_location(module_file, file_path)
-            plugin = imp.module_from_spec(spec)
-            spec.loader.exec_module(plugin)
-        except Exception:
-            logger.error('Cannot load module "%s"', file_path)
-            return
+            spec = imp.spec_from_file_location(module_file, module_path)
+            plugin_module = imp.module_from_spec(spec)
+            spec.loader.exec_module(plugin_module)
+            plugin = plugin_module.device()
+            plugin_name = os.path.splitext(plugin_module.__name__)[0]
+            plugin_version = plugin_module.__version__
+            plugin_id = plugin.id
+            devices[plugin_id] = plugin
+            logger.info('Loaded plugin "%s", version %s, id "%s"',
+                        plugin_name, plugin_version, plugin_id)
+        except Exception as errmsg:
+            logger.error('Cannot load plugin "%s": %s', module_path, errmsg)
 
 
 
@@ -135,13 +140,13 @@ def mqtt_publish_lwt(status):
     try:
         mqtt.publish(message, cfg_option, cfg_section)
         logger.debug(
-            'Published to LWT MQTT topic %s: %s',
+            'Published to LWT MQTT topic "%s": %s',
             mqtt.topic_name(cfg_option, cfg_section),
             message
         )
     except Exception as errmsg:
         logger.error(
-            'Publishing %s to LWT MQTT topic %s failed: %s',
+            'Publishing "%s" to LWT MQTT topic "%s" failed: %s',
             message,
             mqtt.topic_name(cfg_option, cfg_section),
             errmsg,
@@ -320,7 +325,7 @@ def setup_cmdline():
         action='store_true',
         help='''Print configuration parameters in form of INI file content.'''
     )
-    parser.add_argument( 
+    parser.add_argument(
         '-p', '--plugindir',
         default=plugin_folder,
         help=f'Folder with plugins, default "{plugin_folder}"'
@@ -399,8 +404,8 @@ def loop():
     """Wait for keyboard or system exit."""
     try:
         logger.info('Script loop started')
-        while (Script.running):
-            time.sleep(0.01)
+        # while (Script.running):
+        #     time.sleep(0.01)
         logger.info('Script finished')
     except (KeyboardInterrupt, SystemExit):
         logger.info('Script cancelled from keyboard')
