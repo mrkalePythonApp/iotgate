@@ -31,6 +31,7 @@ import os
 import sys
 import argparse
 import logging
+from importlib import util as imp
 
 # Third party modules
 from gbj_sw import utils as modUtils
@@ -62,6 +63,7 @@ logger = None  # Object with standard logging
 config = None  # Object with MQTT configuration file processing
 mqtt = None  # Object for MQTT broker manipulation
 iot = None  # Object for IoT core
+devices = {}  # Dictionary with device plugins
 
 
 ###############################################################################
@@ -73,7 +75,25 @@ def action_exit():
     # mqtt_publish_lwt(iot.Status.OFFLINE)
     # mqtt.disconnect()
 
+def plugins_load():
+    plugins_path, _, module_files = next(os.walk(cmdline.plugindir))
+    # Import plugin modules
+    for module_file in module_files:
+        file_path = os.path.join(plugins_path,
+            f'{Script.name}_{module_file}')
+        try:
+            spec = imp.spec_from_file_location(module_file, file_path)
+            plugin = imp.module_from_spec(spec)
+            spec.loader.exec_module(plugin)
+        except Exception:
+            logger.error('Cannot load module "%s"', file_path)
+            return
 
+
+
+###############################################################################
+# MQTT actions
+###############################################################################
 def mqtt_message_log(message):
     """Log receiving from an MQTT topic.
 
@@ -105,9 +125,6 @@ def mqtt_message_log(message):
     return message.payload is not None
 
 
-###############################################################################
-# MQTT actions
-###############################################################################
 def mqtt_publish_lwt(status):
     """Publish script status to the MQTT LWT topic."""
     if not mqtt.connected:
@@ -303,7 +320,7 @@ def setup_cmdline():
         action='store_true',
         help='''Print configuration parameters in form of INI file content.'''
     )
-    parser.add_argument(
+    parser.add_argument( 
         '-p', '--plugindir',
         default=plugin_folder,
         help=f'Folder with plugins, default "{plugin_folder}"'
@@ -375,6 +392,7 @@ def setup():
         f'Script runs as a ' \
         f'{"service" if Script.service else "program"}'
     logger.info(msg)
+    plugins_load()
 
 
 def loop():
