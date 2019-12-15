@@ -1,11 +1,5 @@
 ; All the values enclosed in sharp parentheses, mostly credentials, should be
 ; replaced with your real data.
-[DEFAULT]
-; MQTT seed topics
-; Each topic can be considered as a logical group of topics. With added
-; trailing '/#' it can be used as a topic filter.
-mqtt_topic_script = iotgate
-mqtt_topic_script_status = %(mqtt_topic_script)s/state
 
 [MQTTbroker]
 ; Userdata for MQTT callback functions
@@ -20,12 +14,3 @@ port = 1883
 username = <mqtt_username>
 ; Password of MQTT registered user
 password = <mqtt_password>
-
-[MQTTtopics]
-; Theese single topics are utilized for publishing and in callbacks
-; for comparing and selecting. The retain parameter is expressed in form of
-; a number, where its absolute integer convertion 0 mean False, otherwise True.
-; topic = topicName, topicQos, topicRetain
-; Example:
-; topic_dummy = %(mqtt_topic)s/dummy, 0, 1
-lwt = %(mqtt_topic_script_status)s, 0, 1

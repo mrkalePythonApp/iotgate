@@ -72,28 +72,10 @@ devices = {}  # Dictionary with device plugins
 def action_exit():
     """Perform all activities right before exiting the script."""
     # modTimer.stop_all()
-    mqtt_publish_lwt(modIot.Status.OFFLINE)
+    # Stop all plugins
+    for _, device in devices.items():
+        device.finish()
     mqtt.disconnect()
-
-def plugins_load():
-    plugins_path, _, module_files = next(os.walk(cmdline.plugindir))
-    # Import plugin modules
-    for module_file in module_files:
-        module_path = os.path.join(plugins_path, module_file)
-        try:
-            spec = imp.spec_from_file_location(module_file, module_path)
-            plugin_module = imp.module_from_spec(spec)
-            spec.loader.exec_module(plugin_module)
-            plugin = plugin_module.device()
-            plugin_name = os.path.splitext(plugin_module.__name__)[0]
-            plugin_version = plugin_module.__version__
-            plugin_id = plugin.id
-            devices[plugin_id] = plugin
-            logger.info('Loaded plugin "%s", version %s, id "%s"',
-                        plugin_name, plugin_version, plugin_id)
-        except Exception as errmsg:
-            logger.error('Cannot load plugin "%s": %s', module_path, errmsg)
-
 
 
 ###############################################################################
@@ -128,29 +110,6 @@ def mqtt_message_log(message):
         message.topic, message.qos, bool(message.retain), payload,
     )
     return message.payload is not None
-
-
-def mqtt_publish_lwt(status):
-    """Publish script status to the MQTT LWT topic."""
-    if not mqtt.connected:
-        return
-    cfg_option = Script.lwt
-    cfg_section = mqtt.GROUP_TOPICS
-    message = modIot.status_token(status)
-    try:
-        mqtt.publish(message, cfg_option, cfg_section)
-        logger.debug(
-            'Published to LWT MQTT topic "%s": %s',
-            mqtt.topic_name(cfg_option, cfg_section),
-            message
-        )
-    except Exception as errmsg:
-        logger.error(
-            'Publishing "%s" to LWT MQTT topic "%s" failed: %s',
-            message,
-            mqtt.topic_name(cfg_option, cfg_section),
-            errmsg,
-        )
 
 
 ###############################################################################
@@ -190,11 +149,9 @@ def cbMqtt_on_connect(client, userdata, flags, rc):
 
     """
     if rc == 0:
-        logger.debug('Connected to %s: %s', str(mqtt), userdata)
-        mqtt_publish_lwt(modIot.Status.ONLINE)
+        logger.debug(f'Connected to {str(mqtt)}: {userdata} ({rc=})')
     else:
-        logger.error('Connection to MQTT broker failed: %s (rc = %d)',
-                     userdata, rc)
+        logger.error(f'Connection to MQTT broker failed: {userdata} ({rc=})')
 
 
 def cbMqtt_on_disconnect(client, userdata, rc):
@@ -215,8 +172,7 @@ def cbMqtt_on_disconnect(client, userdata, rc):
         Description of callback arguments for proper utilizing.
 
     """
-    logger.warning('Disconnected from %s: %s (rc = %d)',
-                   str(mqtt), userdata, rc)
+    logger.warning(f'Disconnected from {str(mqtt)}: {userdata} ({rc=})')
 
 
 def cbMqtt_on_subscribe(client, userdata, mid, granted_qos):
@@ -363,6 +319,26 @@ def setup_config():
     config = modConfig.Config(cmdline.config)
 
 
+def setup_plugins():
+    plugins_path, _, module_files = next(os.walk(cmdline.plugindir))
+    # Import plugin modules
+    for module_file in module_files:
+        module_path = os.path.join(plugins_path, module_file)
+        try:
+            spec = imp.spec_from_file_location(module_file, module_path)
+            plugin_module = imp.module_from_spec(spec)
+            spec.loader.exec_module(plugin_module)
+            plugin = plugin_module.device()
+            plugin_name = os.path.splitext(plugin_module.__name__)[0]
+            plugin_version = plugin_module.__version__
+            plugin_id = plugin.id
+            devices[plugin_id] = plugin
+            logger.info('Loaded plugin "%s", version %s, id "%s"',
+                        plugin_name, plugin_version, plugin_id)
+        except Exception as errmsg:
+            logger.error('Cannot load plugin "%s": %s', module_path, errmsg)
+
+
 def setup_mqtt():
     """Define MQTT management."""
     global mqtt
@@ -374,17 +350,15 @@ def setup_mqtt():
         message=cbMqtt_on_message,
     )
     # Last will and testament
-    status = modIot.status_token(modIot.Status.OFFLINE)
-    mqtt.lwt(status, Script.lwt, mqtt.GROUP_TOPICS)
+    topic = devices[Script.name].get_topic(modIot.Category.STATUS)
     try:
+        mqtt.lwt(modIot.Status.OFFLINE, topic)
         mqtt.connect(
             username=config.option('username', mqtt.GROUP_BROKER),
             password=config.option('password', mqtt.GROUP_BROKER),
         )
     except Exception as errmsg:
-        logger.error(
-            'Connection to MQTT broker failed with error: %s',
-            errmsg)
+        logger.error(errmsg)
 
 
 def setup():
@@ -397,7 +371,11 @@ def setup():
         f'Script runs as a ' \
         f'{"service" if Script.service else "program"}'
     logger.info(msg)
-    plugins_load()
+    # Start all plugins
+    for _, device in devices.items():
+        device.mqtt_client = mqtt
+        device.begin()
+    # Test
 
 
 def loop():
@@ -406,11 +384,12 @@ def loop():
         logger.info('Script loop started')
         # while (Script.running):
         #     time.sleep(0.01)
-        logger.info('Script finished')
+        msg = 'finished'
     except (KeyboardInterrupt, SystemExit):
-        logger.info('Script cancelled from keyboard')
+        msg = 'cancelled from keyboard'
     finally:
         action_exit()
+        logger.info(f'Script {msg}')
 
 
 def main():
@@ -419,6 +398,7 @@ def main():
     setup_cmdline()
     setup_logger()
     setup_config()
+    setup_plugins()
     setup_mqtt()
     setup()
     loop()

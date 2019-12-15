@@ -18,9 +18,9 @@ class device(modIot.Plugin):
 
     def __init__(self):
         super().__init__()
+        self._logger.debug('Instance of %s created: %s',
+                           self.__class__.__name__, self.id)
 
     @property
     def id(self):
-        # name = os.path.splitext(__name__)[0]
-        # id = name.split('_')[1]
-        return 'sysfan'
+        return 'serverfan'

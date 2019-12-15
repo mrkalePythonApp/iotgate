@@ -1,8 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Plugin module for processing SoC events, mostly system temperature
- measurement.
-
- """
+"""Plugin module for processing events of the IoT gate itself."""
 __version__ = '0.1.0'
 __status__ = 'Beta'
 __author__ = 'Libor Gabaj'
@@ -33,3 +30,21 @@ class device(modIot.Plugin):
         name = os.path.splitext(__name__)[0]
         id = name.split('_')[1]
         return id
+
+    def publish_status(self, status: modIot):
+        message = status
+        topic = self.get_topic(modIot.Category.STATUS)
+        try:
+            self.mqtt_client.publish(message, topic)
+            msg = f'Published to MQTT {topic=}: {message}'
+            self.logger.debug(msg)
+        except Exception as errmsg:
+            self.logger.error(errmsg)
+
+    def begin(self):
+        super().begin()
+        self.publish_status(modIot.Status.ONLINE)
+
+    def finish(self):
+        self.publish_status(modIot.Status.OFFLINE)
+        super().finish()
