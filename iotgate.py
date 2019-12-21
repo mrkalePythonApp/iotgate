@@ -36,7 +36,6 @@ from importlib import util as imp
 # Third party modules
 from gbj_sw import utils as modUtils
 from gbj_sw import config as modConfig
-from gbj_sw import mqtt as modMqtt
 from gbj_sw import iot as modIot
 
 
@@ -47,176 +46,35 @@ class Script:
     """Script parameters."""
 
     (
-        fullname, basename, name,
-        running, service, lwt
+        fullname, basename, name, running, service,
     ) = (
-            None, None, None,
-            True, False, 'lwt',
+            None, None, None, True, False,
         )
 
-
-###############################################################################
-# Script global variables
-###############################################################################
-cmdline = None  # Object with command line arguments
-logger = None  # Object with standard logging
-config = None  # Object with MQTT configuration file processing
-mqtt = None  # Object for MQTT broker manipulation
-iot = None  # Object for IoT core
-devices = {}  # Dictionary with device plugins
-
-
-###############################################################################
-# General actions
-###############################################################################
-def action_exit():
-    """Perform all activities right before exiting the script."""
-    # modTimer.stop_all()
-    # Stop all plugins
-    for _, device in devices.items():
-        device.finish()
-    mqtt.disconnect()
-
-
-###############################################################################
-# MQTT actions
-###############################################################################
-def mqtt_message_log(message):
-    """Log receiving from an MQTT topic.
-
-    Arguments
-    ---------
-    message : MQTTMessage object
-        This is an object with members `topic`, `payload`, `qos`, `retain`.
-
-    Returns
-    -------
-    bool
-        Flag about present message payload.
-
-    See Also
-    --------
-    gbj_pythonlib_sw.mqtt
-        Module for MQTT processing.
-
-    """
-    if message.payload is None:
-        payload = "None"
-    else:
-        payload = message.payload.decode('utf-8')
-    logger.debug(
-        '%s -- MQTT topic %s, QoS=%s, retain=%s: %s',
-        sys._getframe(1).f_code.co_name,
-        message.topic, message.qos, bool(message.retain), payload,
+class Actuator:
+    """Objects of respective processors."""
+    (
+        cmdline, logger, gate,
+    ) = (
+        None, None, None,
     )
-    return message.payload is not None
 
 
 ###############################################################################
 # Callback functions
 ###############################################################################
-def cbTimer_mqtt_reconnect(*arg, **kwargs):
-    """Execute MQTT reconnect."""
-    if mqtt.connected:
-        return
-    logger.warning('Reconnecting to MQTT broker')
-    try:
-        mqtt.reconnect()
-    except Exception as errmsg:
-        logger.error(
-            'Reconnection to MQTT broker failed with error: %s',
-            errmsg)
+# def cbTimer_mqtt_reconnect(*arg, **kwargs):
 
-
-def cbMqtt_on_connect(client, userdata, flags, rc):
-    """Process actions when the broker responds to a connection request.
-
-    Arguments
-    ---------
-    client : object
-        MQTT client instance for this callback.
-    userdata
-        The private user data.
-    flags : dict
-        Response flags sent by the MQTT broker.
-    rc : int
-        The connection result (result code).
-
-    See Also
-    --------
-    gbj_pythonlib_sw.mqtt._on_connect()
-        Description of callback arguments for proper utilizing.
-
-    """
-    if rc == 0:
-        logger.debug(f'Connected to {str(mqtt)}: {userdata} ({rc=})')
-    else:
-        logger.error(f'Connection to MQTT broker failed: {userdata} ({rc=})')
-
-
-def cbMqtt_on_disconnect(client, userdata, rc):
-    """Process actions when the client disconnects from the broker.
-
-    Arguments
-    ---------
-    client : object
-        MQTT client instance for this callback.
-    userdata
-        The private user data.
-    rc : int
-        The connection result (result code).
-
-    See Also
-    --------
-    gbj_pythonlib_sw.mqtt._on_connect()
-        Description of callback arguments for proper utilizing.
-
-    """
-    logger.warning(f'Disconnected from {str(mqtt)}: {userdata} ({rc=})')
-
-
-def cbMqtt_on_subscribe(client, userdata, mid, granted_qos):
-    """Process actions when the broker responds to a subscribe request.
-
-    Arguments
-    ---------
-    client : object
-        MQTT client instance for this callback.
-    userdata
-        The private user data.
-    mid : int
-        The message ID from the subscribe request.
-    granted_qos : int
-        The list of integers that give the QoS level the broker has granted
-        for each of the different subscription requests.
-
-    """
-    pass
-
-
-def cbMqtt_on_message(client, userdata, message):
-    """Process actions when a non-filtered message has been received.
-
-    Arguments
-    ---------
-    client : object
-        MQTT client instance for this callback.
-    userdata
-        The private user data.
-    message : MQTTMessage object
-        The object with members `topic`, `payload`, `qos`, `retain`.
-
-    Notes
-    -----
-    - The topic that the client subscribes to and the message does not match
-      an existing topic filter callback.
-    - Use message_callback_add() to define a callback that will be called for
-      specific topic filters. This function serves as fallback when none
-      topic filter matched.
-
-    """
-    if not mqtt_message_log(message):
-        return
+#     """Execute MQTT reconnect."""
+#     if Actuator.mqtt.connected:
+#         return
+#     Actuator.logger.warning('Reconnecting to MQTT broker')
+#     try:
+#         Actuator.mqtt.reconnect()
+#     except Exception as errmsg:
+#         Actuator.logger.error(
+#             'Reconnection to MQTT broker failed with error: %s',
+#             errmsg)
 
 
 ###############################################################################
@@ -277,27 +135,20 @@ def setup_cmdline():
         help=f'Folder of a log file, default "{log_folder}"'
     )
     parser.add_argument(
-        '-c', '--configuration',
-        action='store_true',
-        help='''Print configuration parameters in form of INI file content.'''
-    )
-    parser.add_argument(
         '-p', '--plugindir',
         default=plugin_folder,
         help=f'Folder with plugins, default "{plugin_folder}"'
     )
     # Process command line arguments
-    global cmdline
-    cmdline = parser.parse_args()
+    Actuator.cmdline = parser.parse_args()
 
 
 def setup_logger():
     """Configure logging facility."""
-    global logger
     # Set logging to file for module and script logging
-    log_file = '/'.join([cmdline.logdir, Script.basename + '.log'])
+    log_file = '/'.join([Actuator.cmdline.logdir, Script.basename + '.log'])
     logging.basicConfig(
-        level=getattr(logging, cmdline.loglevel.upper()),
+        level=getattr(logging, Actuator.cmdline.loglevel.upper()),
         format='%(asctime)s - %(levelname)-8s - %(name)s: %(message)s',
         filename=log_file,
         filemode='w'
@@ -306,22 +157,17 @@ def setup_logger():
     formatter = logging.Formatter(
         '%(levelname)-8s - %(name)-20s: %(message)s')
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(getattr(logging, cmdline.verbose.upper()))
+    console_handler.setLevel(getattr(logging, Actuator.cmdline.verbose.upper()))
     console_handler.setFormatter(formatter)
-    logger = logging.getLogger('{} {}'.format(Script.basename, __version__))
-    logger.addHandler(console_handler)
-    logger.info('Script started from file %s', os.path.abspath(__file__))
-
-
-def setup_config():
-    """Define configuration file management."""
-    global config
-    config = modConfig.Config(cmdline.config)
+    Actuator.logger = logging.getLogger('{} {}'.format(Script.basename, __version__))
+    Actuator.logger.addHandler(console_handler)
+    Actuator.logger.info('Script started from file %s', os.path.abspath(__file__))
 
 
 def setup_plugins():
-    plugins_path, _, module_files = next(os.walk(cmdline.plugindir))
+    plugins_path, _, module_files = next(os.walk(Actuator.cmdline.plugindir))
     # Import plugin modules
+    devices = {}
     for module_file in module_files:
         module_path = os.path.join(plugins_path, module_file)
         try:
@@ -333,63 +179,46 @@ def setup_plugins():
             plugin_version = plugin_module.__version__
             plugin_id = plugin.id
             devices[plugin_id] = plugin
-            logger.info('Loaded plugin "%s", version %s, id "%s"',
-                        plugin_name, plugin_version, plugin_id)
+            msg = \
+                f'Loaded plugin "{plugin_name}", version {plugin_version}' \
+                f', id "{plugin_id}"'
+            Actuator.logger.info(msg)
         except Exception as errmsg:
-            logger.error('Cannot load plugin "%s": %s', module_path, errmsg)
-
-
-def setup_mqtt():
-    """Define MQTT management."""
-    global mqtt
-    mqtt = modMqtt.MqttBroker(
-        config,
-        connect=cbMqtt_on_connect,
-        disconnect=cbMqtt_on_disconnect,
-        subscribe=cbMqtt_on_subscribe,
-        message=cbMqtt_on_message,
-    )
-    # Last will and testament
-    topic = devices[Script.name].get_topic(modIot.Category.STATUS)
-    try:
-        mqtt.lwt(modIot.Status.OFFLINE, topic)
-        mqtt.connect(
-            username=config.option('username', mqtt.GROUP_BROKER),
-            password=config.option('password', mqtt.GROUP_BROKER),
-        )
-    except Exception as errmsg:
-        logger.error(errmsg)
-
+            errmsg = f'Cannot load plugin "{module_path}": {errmsg}'
+            Actuator.logger.error(errmsg)
+    # Put list of supported devices to application plugin
+    if Script.name in devices:
+        Actuator.gate = devices[Script.name]
+        Actuator.gate.config = modConfig.Config(Actuator.cmdline.config)
+        for name, plugin in devices.items():
+            if name == Script.name:
+                continue
+            Actuator.gate.devices[name] = plugin
+    else:
+        errmsg = f'No plugin for "{Script.basename}"'
+        Actuator.logger.error(errmsg)
 
 def setup():
     """Global initialization."""
-    # Print configuration file to the console
-    if cmdline.configuration:
-        print(config.content)
-    # Running mode
     msg = \
         f'Script runs as a ' \
         f'{"service" if Script.service else "program"}'
-    logger.info(msg)
-    # Start all plugins
-    for _, device in devices.items():
-        device.mqtt_client = mqtt
-        device.begin()
-    # Test
+    Actuator.logger.info(msg)
+    Actuator.gate.begin()
 
 
 def loop():
     """Wait for keyboard or system exit."""
     try:
-        logger.info('Script loop started')
+        Actuator.logger.info('Script loop started')
         # while (Script.running):
         #     time.sleep(0.01)
         msg = 'finished'
     except (KeyboardInterrupt, SystemExit):
         msg = 'cancelled from keyboard'
     finally:
-        action_exit()
-        logger.info(f'Script {msg}')
+        Actuator.gate.finish()
+        Actuator.logger.info(f'Script {msg}')
 
 
 def main():
@@ -397,9 +226,7 @@ def main():
     setup_params()
     setup_cmdline()
     setup_logger()
-    setup_config()
     setup_plugins()
-    setup_mqtt()
     setup()
     loop()
 
