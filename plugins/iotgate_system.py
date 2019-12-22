@@ -14,30 +14,53 @@ __email__ = 'libor.gabaj@gmail.com'
 
 
 # Standard library modules
-import os
+import logging
 from random import randint
 from enum import Enum
 
 # Custom library modules
-from gbj_sw import utils as modUtils
 from gbj_sw import iot as modIot
+from gbj_sw import timer as modTimer
 
 
 class Parameter(modIot.Parameter):
     """Enumeration of expected MQTT topic parameters."""
     TEMPERATURE = 'temp'
+    PERIOD = 'period'
 
 
 class device(modIot.Plugin):
     """Plugin class."""
 
+    TIMER_PERIOD_DEF = 5.0
+    TIMER_PERIOD_MIN = 1.0
+    TIMER_PERIOD_MAX = 60.0
+    """float: Periods for temperature timer."""
+
+    DEFAULT_TEMPERATURE_MAX = 75.0
+    """float: Maximal allowed temperature in case not read from the system."""
+
+    RANDOM_TEMPERATURE_MIN = 40.0
+    """float: Minimal limit for randomly generated temperature."""
+
+    RANDOM_TEMPERATURE_MAX = 70.0
+    """float: Maximal limit for randomly generated temperature."""
+
+    RANDOM_TEMPERATURE_RES = 10
+    """int: Resolution of generated temperature."""
+
     def __init__(self):
         super().__init__()
         # Logging
-        self._logger.debug('Instance of %s created: %s',
-                           self.__class__.__name__, self.id)
+        self._logger = logging.getLogger(' '.join([__name__, __version__]))
+        self._logger.debug(
+            f'Instance of "{self.__class__.__name__}" created: {self.id}')
         # Device attributes
         self._temperature_max = None
+        self._temperature = None
+        self._timer = modTimer.Timer(self.period,
+                                     self._callback_timer_temperature,
+                                     name='SoCtemp')
         # Device parameters
         self.set_param(self.temperature_maximal,
                        Parameter.TEMPERATURE,
@@ -45,15 +68,33 @@ class device(modIot.Plugin):
 
     @property
     def id(self):
-        name = os.path.splitext(__name__)[0]
-        id = name.split('_')[1]
-        return id
+        return 'server'
+
+    @property
+    def period(self) -> float:
+        """Current timer period in seconds."""
+        if not hasattr(self, '_period') or self._period is None:
+            self._period = self.TIMER_PERIOD_DEF
+        return self._period
+
+    @period.setter
+    def period(self, period: float):
+        """Sanitize and set new timer period in seconds."""
+        try:
+            self._period = abs(float(period))
+        except (ValueError, TypeError):
+            pass
+        else:
+            self._period = min(max(self._period, self.TIMER_PERIOD_MIN),
+                               self.TIMER_PERIOD_MAX)
+        finally:
+            self.period
 
 ###############################################################################
 # MQTT actions
 ###############################################################################
     def publish_status(self):
-        message = f'{self._temperature_max}'
+        message = f'{self._temperature_max: .1f}'
         topic = self.get_topic(
                 modIot.Category.STATUS,
                 Parameter.TEMPERATURE,
@@ -65,15 +106,32 @@ class device(modIot.Plugin):
         except Exception as errmsg:
             self._logger.error(errmsg)
 
-###############################################################################
-# General actions
-###############################################################################
-    def begin(self):
-        super().begin()
-        self.publish_status()
+    def publish_temperature(self):
+        message = f'{self.temperature: .1f}'
+        topic = self.get_topic(
+                modIot.Category.DATA,
+                Parameter.TEMPERATURE,
+                modIot.Measure.VALUE)
+        try:
+            self.mqtt_client.publish(message, topic)
+            msg = f'Published to MQTT {topic=}: {message}'
+            self._logger.debug(msg)
+        except Exception as errmsg:
+            self._logger.error(errmsg)
 
-    def finish(self):
-        super().finish()
+    def publish_percentage(self):
+        percentage = self.temp2perc(self._temperature)
+        message = f'{percentage: .1f}'
+        topic = self.get_topic(
+                modIot.Category.DATA,
+                Parameter.TEMPERATURE,
+                modIot.Measure.PERCENTAGE)
+        try:
+            self.mqtt_client.publish(message, topic)
+            msg = f'Published to MQTT {topic=}: {message}'
+            self._logger.debug(msg)
+        except Exception as errmsg:
+            self._logger.error(errmsg)
 
 ###############################################################################
 # Temperature actions
@@ -117,7 +175,7 @@ class device(modIot.Plugin):
                     '/sys/class/thermal/thermal_zone0/trip_point_0_temp'
                 )
             except FileNotFoundError:
-                temperature = 75.0
+                temperature = self.DEFAULT_TEMPERATURE_MAX
             except Exception as errmsg:
                 self._logger.error(errmsg)
             finally:
@@ -128,21 +186,20 @@ class device(modIot.Plugin):
     @property
     def temperature(self) -> float:
         """Read system current temperature."""
-        temperature = None
+        self._temperature = None
         try:
-            temperature = self._read_temperature(
+            self._temperature = self._read_temperature(
                 '/sys/class/thermal/thermal_zone0/temp'
             )
         except FileNotFoundError:
-            temperature = float(randint(40, 70))
+            temperature = randint(
+                self.RANDOM_TEMPERATURE_MIN * self.RANDOM_TEMPERATURE_RES,
+                self.RANDOM_TEMPERATURE_MAX * self.RANDOM_TEMPERATURE_RES)
+            self._temperature = float(
+                temperature / self.RANDOM_TEMPERATURE_RES)
         except Exception as errmsg:
             self._logger.error(errmsg)
-        return temperature
-
-    @property
-    def percentage(self) -> float:
-        """Read system current temperature and express it in percentage."""
-        return self.temp2perc(self.temperature)
+        return self._temperature
 
     def temp2perc(self, temperature: float) -> float:
         """Calculate percentage from temperature.
@@ -187,3 +244,43 @@ class device(modIot.Plugin):
         if self._temperature_max:
             temperature = percentage / 100.0 * self._temperature_max
         return temperature
+
+###############################################################################
+# General actions
+###############################################################################
+    def begin(self):
+        super().begin()
+        self.publish_status()
+        self._timer.start()
+
+    def finish(self):
+        self._timer.stop()
+        super().finish()
+
+    def _callback_timer_temperature(self, *arg, **kwargs):
+        """Publish temperature."""
+        self.publish_temperature()
+        self.publish_percentage()
+
+    def process_command(self,
+                        payload: str,
+                        parameter: str,
+                        measure: str):
+        """Process command for this device."""
+        pass
+
+    def process_status(self,
+                       device_id: str,
+                       payload: str,
+                       parameter: str,
+                       measure: str):
+        """Process status of any device except this one."""
+        pass
+
+    def process_data(self,
+                     device_id: str,
+                     payload: str,
+                     parameter: str,
+                     measure: str):
+        """Process data from any device except this one."""
+        pass

@@ -61,23 +61,6 @@ class Actuator:
 
 
 ###############################################################################
-# Callback functions
-###############################################################################
-# def cbTimer_mqtt_reconnect(*arg, **kwargs):
-
-#     """Execute MQTT reconnect."""
-#     if Actuator.mqtt.connected:
-#         return
-#     Actuator.logger.warning('Reconnecting to MQTT broker')
-#     try:
-#         Actuator.mqtt.reconnect()
-#     except Exception as errmsg:
-#         Actuator.logger.error(
-#             'Reconnection to MQTT broker failed with error: %s',
-#             errmsg)
-
-
-###############################################################################
 # Setup functions
 ###############################################################################
 def setup_params():
@@ -169,6 +152,10 @@ def setup_plugins():
     # Import plugin modules
     devices = {}
     for module_file in module_files:
+        # Plugin file name should be prefixed with script name
+        if not module_file.startswith(Script.name + '_'):
+            continue
+        # Load plugin
         module_path = os.path.join(plugins_path, module_file)
         try:
             spec = imp.spec_from_file_location(module_file, module_path)
@@ -211,8 +198,8 @@ def loop():
     """Wait for keyboard or system exit."""
     try:
         Actuator.logger.info('Script loop started')
-        # while (Script.running):
-        #     time.sleep(0.01)
+        while (Script.running):
+            time.sleep(0.01)
         msg = 'finished'
     except (KeyboardInterrupt, SystemExit):
         msg = 'cancelled from keyboard'
