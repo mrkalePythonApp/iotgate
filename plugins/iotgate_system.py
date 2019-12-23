@@ -17,6 +17,7 @@ __email__ = 'libor.gabaj@gmail.com'
 import logging
 from random import randint
 from enum import Enum
+from typing import Optional, Any, NoReturn
 
 # Custom library modules
 from gbj_sw import iot as modIot
@@ -94,7 +95,7 @@ class device(modIot.Plugin):
 # MQTT actions
 ###############################################################################
     def publish_status(self):
-        message = f'{self._temperature_max: .1f}'
+        message = f'{self._temperature_max:.1f}'
         topic = self.get_topic(
                 modIot.Category.STATUS,
                 Parameter.TEMPERATURE,
@@ -107,7 +108,7 @@ class device(modIot.Plugin):
             self._logger.error(errmsg)
 
     def publish_temperature(self):
-        message = f'{self.temperature: .1f}'
+        message = f'{self.temperature:.1f}'
         topic = self.get_topic(
                 modIot.Category.DATA,
                 Parameter.TEMPERATURE,
@@ -121,7 +122,7 @@ class device(modIot.Plugin):
 
     def publish_percentage(self):
         percentage = self.temp2perc(self._temperature)
-        message = f'{percentage: .1f}'
+        message = f'{percentage:.1f}'
         topic = self.get_topic(
                 modIot.Category.DATA,
                 Parameter.TEMPERATURE,
@@ -263,24 +264,34 @@ class device(modIot.Plugin):
         self.publish_percentage()
 
     def process_command(self,
-                        payload: str,
+                        value: str,
                         parameter: str,
-                        measure: str):
-        """Process command for this device."""
-        pass
+                        measure: Optional[str]) -> NoReturn:
+        """Process command intended just for this device."""
+        # Detect timer period change
+        if parameter == Parameter.PERIOD.value \
+                and (measure is None or measure == modIot.Measure.VALUE.value):
+            msg = f'Timer period'
+            old = self.period
+            self.period = value
+            if old == self.period:
+                self._logger.debug(f'{msg} "{value}" ignored')
+            else:
+                self._timer.period = self.period
+                self._logger.debug(f'{msg} changed to {self.period}s')
 
     def process_status(self,
-                       device_id: str,
-                       payload: str,
+                       value: str,
                        parameter: str,
-                       measure: str):
-        """Process status of any device except this one."""
+                       measure: Optional[str],
+                       device: object) -> NoReturn:
+        """Process status of any device even this one."""
         pass
 
     def process_data(self,
-                     device_id: str,
-                     payload: str,
+                     value: str,
                      parameter: str,
-                     measure: str):
-        """Process data from any device except this one."""
+                     measure: Optional[str],
+                     device: object) -> NoReturn:
+        """Process data from any device even this one."""
         pass

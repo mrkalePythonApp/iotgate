@@ -13,6 +13,7 @@ __email__ = 'libor.gabaj@gmail.com'
 # Standard library modules
 import logging
 from os import path
+from typing import Optional, Any, NoReturn
 
 # Custom library modules
 from gbj_sw import iot as modIot
@@ -32,7 +33,7 @@ class device(modIot.Plugin):
     TIMER_PERIOD_MAX = 180.0
     """float: Periods for reconnect timer."""
 
-    def __init__(self):
+    def __init__(self) -> NoReturn:
         super().__init__()
         # Logging
         self._logger = logging.getLogger(' '.join([__name__, __version__]))
@@ -47,7 +48,7 @@ class device(modIot.Plugin):
         # Device parameters
 
     @property
-    def id(self):
+    def id(self) -> str:
         name = path.splitext(__name__)[0]
         id = name.split('_')[1]
         return id
@@ -60,7 +61,7 @@ class device(modIot.Plugin):
         return self._period
 
     @period.setter
-    def period(self, period: float):
+    def period(self, period: float) -> NoReturn:
         """Sanitize and set new timer period in seconds."""
         try:
             self._period = abs(float(period))
@@ -75,7 +76,7 @@ class device(modIot.Plugin):
 ###############################################################################
 # MQTT actions
 ###############################################################################
-    def _setup_mqtt(self):
+    def _setup_mqtt(self) -> NoReturn:
         """Define MQTT management."""
         self.mqtt_client = modMqtt.MqttBroker(
             clientid=self.id,
@@ -108,9 +109,9 @@ class device(modIot.Plugin):
 
     def _callback_on_connect(self,
                              client: modMqtt.mqttclient,
-                             userdata: any,
+                             userdata: Any,
                              flags: dict(),
-                             rc: int):
+                             rc: int) -> NoReturn:
         """Process actions when the broker responds to a connection request.
 
         Arguments
@@ -134,8 +135,8 @@ class device(modIot.Plugin):
 
     def _callback_on_disconnect(self,
                                 client: modMqtt.mqttclient,
-                                userdata: any,
-                                rc: int):
+                                userdata: Any,
+                                rc: int) -> NoReturn:
         """Process actions when the client disconnects from the broker.
 
         Arguments
@@ -158,7 +159,7 @@ class device(modIot.Plugin):
 
     def _mqtt_message_log(
             self,
-            message: modMqtt.mqttclient.MQTTMessage):
+            message: modMqtt.mqttclient.MQTTMessage) -> NoReturn:
         """Log receiving from an MQTT topic.
 
         Arguments
@@ -181,9 +182,9 @@ class device(modIot.Plugin):
 
     def _callback_on_subscribe(self,
                                client: modMqtt.mqttclient,
-                               userdata: any,
+                               userdata: Any,
                                mid: int,
-                               granted_qos: int):
+                               granted_qos: int) -> NoReturn:
         """Process actions when the broker responds to a subscribe request.
 
         Arguments
@@ -201,10 +202,11 @@ class device(modIot.Plugin):
         """
         pass
 
-    def _callback_on_message(self,
-                             client: modMqtt.mqttclient,
-                             userdata: any,
-                             message: modMqtt.mqttclient.MQTTMessage):
+    def _callback_on_message(
+        self,
+        client: modMqtt.mqttclient,
+        userdata: Any,
+        message: modMqtt.mqttclient.MQTTMessage) -> NoReturn:
         """Process actions when a non-filtered message has been received.
 
         Arguments
@@ -228,17 +230,30 @@ class device(modIot.Plugin):
         self._mqtt_message_log(message)
         topic = message.topic
         payload = message.payload
-        if payload is not None and len(message.payload):
-            payload = payload.decode('utf-8')
+        if payload is None or len(payload) == 0:
+            self._logger.warning(f'Ignored empty MQTT message')
+            return
+        payload = payload.decode('utf-8')
         # Parse topic
         msg_parts = topic.split(self.TOPIC_SEP, 4)
         if len(msg_parts) > 4:
             self._logger.warning('Ignored too long topic "{topic}"')
             return
-        device_id, category, parameter, measure = None, None, None, None
+        device_id, category, parameter, measure = (None,) * 4
         try:
-            device_id, category, parameter, measure = msg_parts[0], \
-                msg_parts[1], msg_parts[2], msg_parts[3]
+            device_id = msg_parts[0]
+        except IndexError:
+            pass
+        try:
+            category = msg_parts[1]
+        except IndexError:
+            pass
+        try:
+            parameter = msg_parts[2]
+        except IndexError:
+            pass
+        try:
+            measure = msg_parts[3]
         except IndexError:
             pass
         # Determine device and process command for it
@@ -246,20 +261,12 @@ class device(modIot.Plugin):
             device = self.devices[device_id]
             if category == modIot.Category.COMMAND.value:
                 device.process_command(payload, parameter, measure)
-        # Process status and data for all devices except the source one
+        # Let all devices to process status and data (interdevice dependency)
         for device in self.devices.items():
-            if device_id == device.id:
-                continue
             if category == modIot.Category.STATUS.value:
-                device.process_status(payload,
-                                      device_id,
-                                      parameter,
-                                      measure)
-            if category == modIot.Category.DATA.value:
-                device.process_data(payload,
-                                    device_id,
-                                    parameter,
-                                    measure)
+                device.process_status(payload, parameter, measure, device)
+            elif category == modIot.Category.DATA.value:
+                device.process_data(payload, parameter, measure, device)
 
     def publish_status(self, status: modIot = modIot.Status.ONLINE):
         message = status
@@ -306,24 +313,34 @@ class device(modIot.Plugin):
             self._logger.error(errmsg)
 
     def process_command(self,
-                        payload: str,
+                        value: str,
                         parameter: str,
-                        measure: str):
+                        measure: Optional[str]) -> NoReturn:
         """Process command for this device."""
-        pass
+        # Detect timer period change
+        if parameter == Parameter.PERIOD.value \
+                and (measure is None or measure == modIot.Measure.VALUE.value):
+            msg = f'Timer period'
+            old = self.period
+            self.period = value
+            if old == self.period:
+                self._logger.debug(f'{msg} "{value}" ignored')
+            else:
+                self._timer.period = self.period
+                self._logger.debug(f'{msg} changed to {self.period}s')
 
     def process_status(self,
-                       device_id: str,
-                       payload: str,
+                       value: str,
                        parameter: str,
-                       measure: str):
+                       measure: Optional[str],
+                       device: object) -> NoReturn:
         """Process status of any device except this one."""
         pass
 
     def process_data(self,
-                     device_id: str,
-                     payload: str,
+                     value: str,
                      parameter: str,
-                     measure: str):
+                     measure: Optional[str],
+                     device: object) -> NoReturn:
         """Process data from any device except this one."""
         pass
