@@ -178,8 +178,6 @@ def setup_plugins():
         Actuator.gate = devices[Script.name]
         Actuator.gate.config = modConfig.Config(Actuator.cmdline.config)
         for name, plugin in devices.items():
-            if name == Script.name:
-                continue
             Actuator.gate.devices[name] = plugin
     else:
         errmsg = f'No plugin for "{Script.basename}"'

@@ -1,6 +1,12 @@
 # -*- coding: utf-8 -*-
-"""Plugin module for processing SoC events, mostly system temperature
- measurement.
+"""Plugin module representing the operating system of the IoT server.
+
+- The module mediates SoC temperature sensor and measures the temeperature
+  directly by reading corresponding system file(s).
+
+- The plugin receives commands for
+  - publishing status
+  - changing measurement timer period within hardcoded range
 
  """
 __version__ = '0.1.0'
@@ -22,47 +28,53 @@ from typing import Optional, Any, NoReturn
 # Custom library modules
 from gbj_sw import iot as modIot
 from gbj_sw import timer as modTimer
+from gbj_sw import statfilter as modFilter
 
 
 class Parameter(modIot.Parameter):
     """Enumeration of expected MQTT topic parameters."""
-    TEMPERATURE = 'temp'
     PERIOD = 'period'
+    TEMPERATURE = 'temp'
 
 
 class device(modIot.Plugin):
     """Plugin class."""
 
-    TIMER_PERIOD_DEF = 5.0
-    TIMER_PERIOD_MIN = 1.0
-    TIMER_PERIOD_MAX = 60.0
-    """float: Periods for temperature timer."""
+    class Timer(Enum):
+        """Period parameters for temperature reading timer."""
+        DEFAULT = 5.0
+        MINIMUM = 1.0
+        MAXIMUM = 60.0
 
-    DEFAULT_TEMPERATURE_MAX = 75.0
-    """float: Maximal allowed temperature in case not read from the system."""
+    class RandomTemperature(Enum):
+        """Parameters fo randomly generated temperature on Windows."""
+        RESOLUTION = 10  # int: Resolution of generated temperature
+        DEFAULT = 75.0   # Maximal allowed temperature
+        MINIMUM = 40.0   # Interval for random temperatures
+        MAXIMUM = 70.0
 
-    RANDOM_TEMPERATURE_MIN = 40.0
-    """float: Minimal limit for randomly generated temperature."""
-
-    RANDOM_TEMPERATURE_MAX = 70.0
-    """float: Maximal limit for randomly generated temperature."""
-
-    RANDOM_TEMPERATURE_RES = 10
-    """int: Resolution of generated temperature."""
-
-    def __init__(self):
+    def __init__(self) -> NoReturn:
         super().__init__()
         # Logging
         self._logger = logging.getLogger(' '.join([__name__, __version__]))
         self._logger.debug(
             f'Instance of "{self.__class__.__name__}" created: {self.id}')
         # Device attributes
-        self._temperature_max = None
-        self._temperature = None
         self._timer = modTimer.Timer(self.period,
                                      self._callback_timer_temperature,
                                      name='SoCtemp')
-        # Device parameters
+        self._filter = modFilter.Exponential()
+        # Fixed device parameters
+        self.set_param(self.period,
+                       Parameter.PERIOD,
+                       modIot.Measure.DEFAULT)
+        self.set_param(self.Timer.MINIMUM.value,
+                       Parameter.PERIOD,
+                       modIot.Measure.MINIMUM)
+        self.set_param(self.Timer.MAXIMUM.value,
+                       Parameter.PERIOD,
+                       modIot.Measure.MAXIMUM)
+        #
         self.set_param(self.temperature_maximal,
                        Parameter.TEMPERATURE,
                        modIot.Measure.MAXIMUM)
@@ -75,38 +87,37 @@ class device(modIot.Plugin):
     def period(self) -> float:
         """Current timer period in seconds."""
         if not hasattr(self, '_period') or self._period is None:
-            self._period = self.TIMER_PERIOD_DEF
+            self._period = self.Timer.DEFAULT.value
         return self._period
 
     @period.setter
     def period(self, period: float):
         """Sanitize and set new timer period in seconds."""
         try:
-            self._period = abs(float(period))
+            old = self.period
+            self._period = float(period or self.Timer.DEFAULT.value)
+            if old == self._period:
+                raise ValueError
         except (ValueError, TypeError):
             pass
         else:
-            self._period = min(max(self._period, self.TIMER_PERIOD_MIN),
-                               self.TIMER_PERIOD_MAX)
-        finally:
-            self.period
+            # Sanitize new period
+            self._period = min(max(abs(self._period),
+                                   self.Timer.MINIMUM.value),
+                               self.Timer.MAXIMUM.value)
+            # Register new period
+            self.set_param(self._period,
+                        Parameter.PERIOD,
+                        modIot.Measure.DEFAULT)
+            # Publish new period
+            self.publish_param(Parameter.PERIOD, modIot.Measure.DEFAULT)
+            # Apply new period
+            if self._timer:
+                self._timer.period = self._period
 
 ###############################################################################
 # MQTT actions
 ###############################################################################
-    def publish_status(self):
-        message = f'{self._temperature_max:.1f}'
-        topic = self.get_topic(
-                modIot.Category.STATUS,
-                Parameter.TEMPERATURE,
-                modIot.Measure.MAXIMUM)
-        try:
-            self.mqtt_client.publish(message, topic)
-            msg = f'Published to MQTT {topic=}: {message}'
-            self._logger.debug(msg)
-        except Exception as errmsg:
-            self._logger.error(errmsg)
-
     def publish_temperature(self):
         message = f'{self.temperature:.1f}'
         topic = self.get_topic(
@@ -169,38 +180,37 @@ class device(modIot.Plugin):
     @property
     def temperature_maximal(self) -> float:
         """Cached system maximal temperature."""
+        if not hasattr(self, '_temperature_max'):
+            self._temperature_max = None
         if self._temperature_max is None:
-            temperature = None
             try:
-                temperature = self._read_temperature(
+                self._temperature_max = self._read_temperature(
                     '/sys/class/thermal/thermal_zone0/trip_point_0_temp'
                 )
             except FileNotFoundError:
-                temperature = self.DEFAULT_TEMPERATURE_MAX
+                self._temperature_max = self.RandomTemperature.DEFAULT.value
             except Exception as errmsg:
                 self._logger.error(errmsg)
-            finally:
-                if temperature is not None:
-                    self._temperature_max = temperature
         return self._temperature_max
 
     @property
     def temperature(self) -> float:
         """Read system current temperature."""
-        self._temperature = None
+        if not hasattr(self, '_temperature'):
+            self._temperature = None
         try:
             self._temperature = self._read_temperature(
                 '/sys/class/thermal/thermal_zone0/temp'
             )
         except FileNotFoundError:
-            temperature = randint(
-                self.RANDOM_TEMPERATURE_MIN * self.RANDOM_TEMPERATURE_RES,
-                self.RANDOM_TEMPERATURE_MAX * self.RANDOM_TEMPERATURE_RES)
-            self._temperature = float(
-                temperature / self.RANDOM_TEMPERATURE_RES)
+            res = self.RandomTemperature.RESOLUTION.value
+            min = self.RandomTemperature.MINIMUM.value * res
+            max = self.RandomTemperature.MAXIMUM.value * res
+            self._temperature = randint(min, max)
+            self._temperature = float(self._temperature // res)
         except Exception as errmsg:
             self._logger.error(errmsg)
-        return self._temperature
+        return self._filter.result(self._temperature)
 
     def temp2perc(self, temperature: float) -> float:
         """Calculate percentage from temperature.
@@ -218,11 +228,10 @@ class device(modIot.Plugin):
             or nothing.
 
         """
-        percentage = None
-        self.temperature_maximal
-        if self._temperature_max:
-            percentage = temperature / self._temperature_max * 100.0
-        return percentage
+        try:
+            return temperature / self.temperature_maximal * 100.0
+        except TypeError:
+            return None
 
     def perc2temp(self, percentage: float) -> float:
         """Calculate temperature value in centigrades from percentage.
@@ -240,11 +249,10 @@ class device(modIot.Plugin):
             or nothing.
 
         """
-        temperature = None
-        self.temperature_maximal
-        if self._temperature_max:
-            temperature = percentage / 100.0 * self._temperature_max
-        return temperature
+        try:
+            return percentage / 100.0 * self.temperature_maximal
+        except TypeError:
+            return None
 
 ###############################################################################
 # General actions
@@ -265,33 +273,21 @@ class device(modIot.Plugin):
 
     def process_command(self,
                         value: str,
-                        parameter: str,
+                        parameter: Optional[str],
                         measure: Optional[str]) -> NoReturn:
         """Process command intended just for this device."""
-        # Detect timer period change
+        # Generic commands
+        if parameter is None and measure is None:
+            # Publish status
+            if value == modIot.Command.GET_STATUS.value:
+                self.publish_status()
+            # Reset status
+            if value == modIot.Command.RESET.value:
+                self.period = self.Timer.DEFAULT.value
+                self.publish_status()
+                self._logger.warning(f'Device reset')
+        # Change timer period
         if parameter == Parameter.PERIOD.value \
-                and (measure is None or measure == modIot.Measure.VALUE.value):
-            msg = f'Timer period'
-            old = self.period
+            and measure == modIot.Measure.VALUE.value:
             self.period = value
-            if old == self.period:
-                self._logger.debug(f'{msg} "{value}" ignored')
-            else:
-                self._timer.period = self.period
-                self._logger.debug(f'{msg} changed to {self.period}s')
-
-    def process_status(self,
-                       value: str,
-                       parameter: str,
-                       measure: Optional[str],
-                       device: object) -> NoReturn:
-        """Process status of any device even this one."""
-        pass
-
-    def process_data(self,
-                     value: str,
-                     parameter: str,
-                     measure: Optional[str],
-                     device: object) -> NoReturn:
-        """Process data from any device even this one."""
-        pass
+            self._logger.warning(f'Timer period set to {self.period}s')

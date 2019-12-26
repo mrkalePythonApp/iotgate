@@ -1,5 +1,17 @@
 # -*- coding: utf-8 -*-
-"""Plugin module for processing events and business logic of the IoT gate."""
+"""Plugin module representing IoT gate application.
+
+- The module registers all other plugins as devices representing real hardware
+  items, actuators, and sensors.
+
+- The module mediates communication with MQTT broker and distributes MQTT
+  messages to all registered devices for processing.
+
+- The plugin receives commands for
+  - publishing status
+  - changing MQTT reconnect timer period within hardcoded range
+
+"""
 __version__ = '0.1.0'
 __status__ = 'Beta'
 __author__ = 'Libor Gabaj'
@@ -13,6 +25,7 @@ __email__ = 'libor.gabaj@gmail.com'
 # Standard library modules
 import logging
 from os import path
+from enum import Enum
 from typing import Optional, Any, NoReturn
 
 # Custom library modules
@@ -21,17 +34,24 @@ from gbj_sw import mqtt as modMqtt
 from gbj_sw import timer as modTimer
 
 
+class Parameter(modIot.Parameter):
+    """Enumeration of expected MQTT topic parameters."""
+    PERIOD = 'period'
+
+
 class device(modIot.Plugin):
     """Plugin class."""
 
-    # Predefined configuration file sections related to MQTT
-    GROUP_BROKER = 'MQTTbroker'
-    """str: Predefined configuration section with MQTT broker parameters."""
+    class Timer(Enum):
+        """Period parameters for MQTT reconnecting timer."""
+        DEFAULT = 30.0
+        MINIMUM = 5.0
+        MAXIMUM = 180.0
 
-    TIMER_PERIOD_DEF = 30.0
-    TIMER_PERIOD_MIN = 5.0
-    TIMER_PERIOD_MAX = 180.0
-    """float: Periods for reconnect timer."""
+
+    class MqttConfig(Enum):
+        """MQTT configuration parameters for INI file."""
+        GROUP_BROKER = 'MQTTbroker'  # INI section
 
     def __init__(self) -> NoReturn:
         super().__init__()
@@ -46,6 +66,15 @@ class device(modIot.Plugin):
                                      self._callback_timer_reconnect,
                                      name='MqttRecon')
         # Device parameters
+        self.set_param(self.period,
+                       Parameter.PERIOD,
+                       modIot.Measure.DEFAULT)
+        self.set_param(self.Timer.MINIMUM.value,
+                       Parameter.PERIOD,
+                       modIot.Measure.MINIMUM)
+        self.set_param(self.Timer.MAXIMUM.value,
+                       Parameter.PERIOD,
+                       modIot.Measure.MAXIMUM)
 
     @property
     def id(self) -> str:
@@ -57,21 +86,33 @@ class device(modIot.Plugin):
     def period(self) -> float:
         """Current timer period in seconds."""
         if not hasattr(self, '_period') or self._period is None:
-            self._period = self.TIMER_PERIOD_DEF
+            self._period = self.Timer.DEFAULT.value
         return self._period
 
     @period.setter
     def period(self, period: float) -> NoReturn:
         """Sanitize and set new timer period in seconds."""
         try:
-            self._period = abs(float(period))
+            old = self.period
+            self._period = float(period or self.Timer.DEFAULT.value)
+            if old == self._period:
+                raise ValueError
         except (ValueError, TypeError):
             pass
         else:
-            self._period = min(max(self._period, self.TIMER_PERIOD_MIN),
-                               self.TIMER_PERIOD_MAX)
-        finally:
-            self.period
+            # Sanitize new period
+            self._period = min(max(abs(self._period),
+                                   self.Timer.MINIMUM.value),
+                               self.Timer.MAXIMUM.value)
+            # Register new period
+            self.set_param(self._period,
+                           Parameter.PERIOD,
+                           modIot.Measure.DEFAULT)
+            # Publish new period
+            self.publish_param(Parameter.PERIOD, modIot.Measure.DEFAULT)
+            # Apply new period
+            if self._timer:
+                self._timer.period = self._period
 
 ###############################################################################
 # MQTT actions
@@ -88,15 +129,16 @@ class device(modIot.Plugin):
         # Set last will and testament
         try:
             topic = self.get_topic(modIot.Category.STATUS)
-            self.mqtt_client.lwt(modIot.Status.OFFLINE, topic)
+            self.mqtt_client.lwt(modIot.Status.OFFLINE.value, topic)
         except Exception as errmsg:
             self._logger.error(errmsg)
         # Connect to MQTT broker
         try:
-            username = self.config.option('username', self.GROUP_BROKER)
-            password = self.config.option('password', self.GROUP_BROKER)
-            host = self.config.option('host', self.GROUP_BROKER)
-            port = self.config.option('port', self.GROUP_BROKER)
+            section = self.MqttConfig.GROUP_BROKER.value
+            username = self.config.option('username', section)
+            password = self.config.option('password', section)
+            host = self.config.option('host', section)
+            port = self.config.option('port', section)
 
             self.mqtt_client.connect(
                 username=username,
@@ -235,41 +277,30 @@ class device(modIot.Plugin):
             return
         payload = payload.decode('utf-8')
         # Parse topic
-        msg_parts = topic.split(self.TOPIC_SEP, 4)
-        if len(msg_parts) > 4:
+        maxvars = 4
+        msg_parts = topic.split(self.TOPIC_SEP, maxvars)
+        if len(msg_parts) > maxvars:
             self._logger.warning('Ignored too long topic "{topic}"')
             return
-        device_id, category, parameter, measure = (None,) * 4
-        try:
-            device_id = msg_parts[0]
-        except IndexError:
-            pass
-        try:
-            category = msg_parts[1]
-        except IndexError:
-            pass
-        try:
-            parameter = msg_parts[2]
-        except IndexError:
-            pass
-        try:
-            measure = msg_parts[3]
-        except IndexError:
-            pass
-        # Determine device and process command for it
-        if device_id in self.devices:
-            device = self.devices[device_id]
-            if category == modIot.Category.COMMAND.value:
+        msg_parts.extend([None] * (maxvars - len(msg_parts)))
+        device_id, category, parameter, measure = msg_parts
+        # Process device's own command
+        if category == modIot.Category.COMMAND.value:
+            if device_id in self.devices:
+                device = self.devices[device_id]
                 device.process_command(payload, parameter, measure)
-        # Let all devices to process status and data (interdevice dependency)
-        for device in self.devices.items():
-            if category == modIot.Category.STATUS.value:
-                device.process_status(payload, parameter, measure, device)
-            elif category == modIot.Category.DATA.value:
-                device.process_data(payload, parameter, measure, device)
+        # Process foreign status and data (interdevice dependency)
+        else:
+            for device in self.devices.values():
+                if device_id == device.id:
+                    continue
+                if category == modIot.Category.STATUS.value:
+                    device.process_status(payload, parameter, measure, device)
+                elif category == modIot.Category.DATA.value:
+                    device.process_data(payload, parameter, measure, device)
 
-    def publish_status(self, status: modIot = modIot.Status.ONLINE):
-        message = status
+    def publish_connect(self, status: modIot.Status):
+        message = status.value
         topic = self.get_topic(modIot.Category.STATUS)
         try:
             self.mqtt_client.publish(message, topic)
@@ -284,20 +315,25 @@ class device(modIot.Plugin):
     def begin(self):
         super().begin()
         self._setup_mqtt()
-        self.publish_status(modIot.Status.ONLINE)
-        # Start all devices and subscribe to their MQTT topics
-        for _, device in self.devices.items():
-            device.mqtt_client = self.mqtt_client
-            device.begin()
+        self.publish_connect(modIot.Status.ONLINE)
+        self.publish_status()
+
+        # Start all devices except this one and subscribe to their MQTT topics
+        for device in self.devices.values():
+            if device != self:
+                device.mqtt_client = self.mqtt_client
+                device.begin()
             self.mqtt_client.subscribe(device.device_topic)
         self._timer.start()
 
     def finish(self):
         self._timer.stop()
         # Stop all devices plugins
-        for _, device in self.devices.items():
+        for device in self.devices.values():
+            if device == self:
+                continue
             device.finish()
-        self.publish_status(modIot.Status.OFFLINE)
+        self.publish_connect(modIot.Status.OFFLINE)
         self.mqtt_client.disconnect()
         super().finish()
 
@@ -314,33 +350,21 @@ class device(modIot.Plugin):
 
     def process_command(self,
                         value: str,
-                        parameter: str,
+                        parameter: Optional[str],
                         measure: Optional[str]) -> NoReturn:
-        """Process command for this device."""
-        # Detect timer period change
+        """Process command intended just for this device."""
+        # Generic commands
+        if parameter is None and measure is None:
+            # Publish status
+            if value == modIot.Command.GET_STATUS.value:
+                self.publish_status()
+            # Reset status
+            if value == modIot.Command.RESET.value:
+                self.period = self.Timer.DEFAULT.value
+                self.publish_status()
+                self._logger.warning(f'Device reset')
+        # Change timer period
         if parameter == Parameter.PERIOD.value \
-                and (measure is None or measure == modIot.Measure.VALUE.value):
-            msg = f'Timer period'
-            old = self.period
+                and measure == modIot.Measure.VALUE.value:
             self.period = value
-            if old == self.period:
-                self._logger.debug(f'{msg} "{value}" ignored')
-            else:
-                self._timer.period = self.period
-                self._logger.debug(f'{msg} changed to {self.period}s')
-
-    def process_status(self,
-                       value: str,
-                       parameter: str,
-                       measure: Optional[str],
-                       device: object) -> NoReturn:
-        """Process status of any device except this one."""
-        pass
-
-    def process_data(self,
-                     value: str,
-                     parameter: str,
-                     measure: Optional[str],
-                     device: object) -> NoReturn:
-        """Process data from any device except this one."""
-        pass
+            self._logger.warning(f'Timer period set to {self.period}s')
