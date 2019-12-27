@@ -55,15 +55,15 @@ class device(modIot.Plugin):
 
     def __init__(self) -> NoReturn:
         super().__init__()
-        # Logging
         self._logger = logging.getLogger(' '.join([__name__, __version__]))
-        self._logger.debug(
-            f'Instance of "{self.__class__.__name__}" created: {self.id}')
         # Device attributes
         self._timer = modTimer.Timer(self.period,
                                      self._callback_timer_temperature,
                                      name='SoCtemp')
+        # self._filter = modFilter.Running()
+        # self._filter.stat_type = self._filter.StatisticType.MEDIAN
         self._filter = modFilter.Exponential()
+        self._filter.factor = self._filter.Factor.OPTIMAL.value
         # Fixed device parameters
         self.set_param(self.period,
                        Parameter.PERIOD,

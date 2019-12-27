@@ -55,10 +55,7 @@ class device(modIot.Plugin):
 
     def __init__(self) -> NoReturn:
         super().__init__()
-        # Logging
         self._logger = logging.getLogger(' '.join([__name__, __version__]))
-        self._logger.debug(
-            f'Instance of "{self.__class__.__name__}" created: {self.id}')
         # Device attributes
         self.config = None  # Access to configuration INI file
         self.devices = {}  # List of processed proxy devices
