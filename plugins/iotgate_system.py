@@ -124,12 +124,12 @@ class device(modIot.Plugin):
                 modIot.Category.DATA,
                 Parameter.TEMPERATURE,
                 modIot.Measure.VALUE)
-        try:
-            self.mqtt_client.publish(message, topic)
-            msg = f'Published to MQTT {topic=}: {message}'
-            self._logger.debug(msg)
-        except Exception as errmsg:
-            self._logger.error(errmsg)
+        log = self.get_log(message,
+                           modIot.Category.DATA,
+                           Parameter.TEMPERATURE,
+                           modIot.Measure.VALUE)
+        self._logger.debug(log)
+        self.mqtt_client.publish(message, topic)
 
     def publish_percentage(self):
         percentage = self.temp2perc(self._temperature)
@@ -138,12 +138,12 @@ class device(modIot.Plugin):
                 modIot.Category.DATA,
                 Parameter.TEMPERATURE,
                 modIot.Measure.PERCENTAGE)
-        try:
-            self.mqtt_client.publish(message, topic)
-            msg = f'Published to MQTT {topic=}: {message}'
-            self._logger.debug(msg)
-        except Exception as errmsg:
-            self._logger.error(errmsg)
+        log = self.get_log(message,
+                           modIot.Category.DATA,
+                           Parameter.TEMPERATURE,
+                           modIot.Measure.PERCENTAGE)
+        self._logger.debug(log)
+        self.mqtt_client.publish(message, topic)
 
 ###############################################################################
 # Temperature actions

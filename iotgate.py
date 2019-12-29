@@ -46,9 +46,9 @@ class Script:
     """Script parameters."""
 
     (
-        fullname, basename, name, running, service,
+        fullname, basename, name, service,
     ) = (
-            None, None, None, True, False,
+            None, None, None, False,
         )
 
 class Actuator:
@@ -196,8 +196,8 @@ def loop():
     """Wait for keyboard or system exit."""
     try:
         Actuator.logger.info('Script loop started')
-        while (Script.running):
-            time.sleep(0.01)
+        while True:
+            time.sleep(0.1)
         msg = 'finished'
     except (KeyboardInterrupt, SystemExit):
         msg = 'cancelled from keyboard'

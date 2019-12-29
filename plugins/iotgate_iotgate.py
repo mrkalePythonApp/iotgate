@@ -275,7 +275,7 @@ class device(modIot.Plugin):
         payload = payload.decode('utf-8')
         # Parse topic
         maxvars = 4
-        msg_parts = topic.split(self.TOPIC_SEP, maxvars)
+        msg_parts = topic.split(self.Separator.TOPIC.value, maxvars)
         if len(msg_parts) > maxvars:
             self._logger.warning('Ignored too long topic "{topic}"')
             return
@@ -297,14 +297,12 @@ class device(modIot.Plugin):
                     device.process_data(payload, parameter, measure, device)
 
     def publish_connect(self, status: modIot.Status):
+        """Publish connection status to MQTT broker."""
         message = status.value
         topic = self.get_topic(modIot.Category.STATUS)
-        try:
-            self.mqtt_client.publish(message, topic)
-            msg = f'Published to MQTT {topic=}: {message}'
-            self._logger.debug(msg)
-        except Exception as errmsg:
-            self._logger.error(errmsg)
+        log = self.get_log(message, modIot.Category.STATUS)
+        self._logger.debug(log)
+        self.mqtt_client.publish(message, topic)
 
 ###############################################################################
 # General actions
