@@ -1,5 +1,17 @@
 # -*- coding: utf-8 -*-
-"""Plugin module for controlling cooling fan of the server."""
+"""Plugin module representing the cooling fan of the server.
+
+- The module receives temperature percentage from MQTT broker and controls
+  cooling fan according to it immidiatelly.
+
+- The plugin represents the cooling fan directly, i.e., is able to control it
+  directly with GPIO pins.
+
+- The plugin receives commands for
+  - publishing status
+  - turning on and off the fan and for toggling it
+
+ """
 __version__ = '0.1.0'
 __status__ = 'Beta'
 __author__ = 'Libor Gabaj'
@@ -8,6 +20,9 @@ __credits__ = [__author__]
 __license__ = 'MIT'
 __maintainer__ = __author__
 __email__ = 'libor.gabaj@gmail.com'
+
+# Standard library modules
+import logging
 
 # Custom library modules
 from gbj_sw import iot as modIot
@@ -18,9 +33,8 @@ class device(modIot.Plugin):
 
     def __init__(self):
         super().__init__()
-        self._logger.debug('Instance of %s created: %s',
-                           self.__class__.__name__, self.id)
+        self._logger = logging.getLogger(' '.join([__name__, __version__]))
 
     @property
     def id(self):
-        return 'serverfan'
+        return 'sfan'
