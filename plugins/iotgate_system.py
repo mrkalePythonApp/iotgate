@@ -12,7 +12,7 @@
 __version__ = '0.1.0'
 __status__ = 'Beta'
 __author__ = 'Libor Gabaj'
-__copyright__ = 'Copyright 2019, ' + __author__
+__copyright__ = 'Copyright 2019-2020, ' + __author__
 __credits__ = [__author__]
 __license__ = 'MIT'
 __maintainer__ = __author__
@@ -23,12 +23,42 @@ __email__ = 'libor.gabaj@gmail.com'
 import logging
 from random import randint
 from enum import Enum
-from typing import Optional, Any, NoReturn
+from typing import Optional, NoReturn
 
 # Custom library modules
 from gbj_sw import iot as modIot
 from gbj_sw import timer as modTimer
 from gbj_sw import statfilter as modFilter
+
+
+def read_temperature(system_path: str) -> float:
+    """Read system file and interpret the content as the temperature.
+
+    Arguments
+    ---------
+    system_path
+        Full path to a file with system temperature.
+
+    Returns
+    -------
+    temperature
+        System temperature in centigrades Celsius.
+        If some problem occurs with reading system file, the None is
+        provided.
+
+    Raises
+    -------
+    ValueError
+        Content of the system file cannot be converted to float.
+
+    """
+    with open(system_path) as system_file:
+        content = system_file.read()
+        temperature = float(content)
+        # Raspbian with temp in centigrades, other Pis in millicentigrades
+        if temperature > 85.0:
+            temperature /= 1000.0
+    return temperature
 
 
 class Parameter(modIot.Parameter):
@@ -37,7 +67,7 @@ class Parameter(modIot.Parameter):
     TEMPERATURE = 'temp'
 
 
-class device(modIot.Plugin):
+class Device(modIot.Plugin):
     """Plugin class."""
 
     class Timer(Enum):
@@ -57,13 +87,15 @@ class device(modIot.Plugin):
         super().__init__()
         self._logger = logging.getLogger(' '.join([__name__, __version__]))
         # Device attributes
+        self._temperature_max = None
         self._timer = modTimer.Timer(self.period,
                                      self._callback_timer_temperature,
                                      name='SoCtemp')
-        # self._filter = modFilter.Running()
+        self._filter = modFilter.Running()
+        self._filter.stat_type = self._filter.StatisticType.AVERAGE
         # self._filter.stat_type = self._filter.StatisticType.MEDIAN
-        self._filter = modFilter.Exponential()
-        self._filter.factor = self._filter.Factor.OPTIMAL.value
+        # self._filter = modFilter.Exponential()
+        # self._filter.factor = self._filter.Factor.OPTIMAL.value
         # Fixed device parameters
         self.set_param(self.period,
                        Parameter.PERIOD,
@@ -80,7 +112,7 @@ class device(modIot.Plugin):
                        modIot.Measure.MAXIMUM)
 
     @property
-    def id(self):
+    def id(self) -> str:
         return 'server'
 
     @property
@@ -107,8 +139,8 @@ class device(modIot.Plugin):
                                self.Timer.MAXIMUM.value)
             # Register new period
             self.set_param(self._period,
-                        Parameter.PERIOD,
-                        modIot.Measure.DEFAULT)
+                           Parameter.PERIOD,
+                           modIot.Measure.DEFAULT)
             # Publish new period
             self.publish_param(Parameter.PERIOD, modIot.Measure.DEFAULT)
             # Apply new period
@@ -119,11 +151,12 @@ class device(modIot.Plugin):
 # MQTT actions
 ###############################################################################
     def publish_temperature(self):
+        """Read and publish current temperature."""
         message = f'{self.temperature:.1f}'
         topic = self.get_topic(
-                modIot.Category.DATA,
-                Parameter.TEMPERATURE,
-                modIot.Measure.VALUE)
+            modIot.Category.DATA,
+            Parameter.TEMPERATURE,
+            modIot.Measure.VALUE)
         log = self.get_log(message,
                            modIot.Category.DATA,
                            Parameter.TEMPERATURE,
@@ -132,12 +165,13 @@ class device(modIot.Plugin):
         self.mqtt_client.publish(message, topic)
 
     def publish_percentage(self):
-        percentage = self.temp2perc(self._temperature)
+        """Calculate and publish percentage of recent current temperature."""
+        percentage = self.temp2perc(self._filter.result())
         message = f'{percentage:.1f}'
         topic = self.get_topic(
-                modIot.Category.DATA,
-                Parameter.TEMPERATURE,
-                modIot.Measure.PERCENTAGE)
+            modIot.Category.DATA,
+            Parameter.TEMPERATURE,
+            modIot.Measure.PERCENTAGE)
         log = self.get_log(message,
                            modIot.Category.DATA,
                            Parameter.TEMPERATURE,
@@ -148,69 +182,33 @@ class device(modIot.Plugin):
 ###############################################################################
 # Temperature actions
 ###############################################################################
-    def _read_temperature(self, system_path: str) -> float:
-        """Read system file and interpret the content as the temperature.
-
-        Arguments
-        ---------
-        system_path
-            Full path to a file with system temperature.
-
-        Returns
-        -------
-        temperature
-            System temperature in centigrades Celsius.
-            If some problem occurs with reading system file, the None is
-            provided.
-
-        Raises
-        -------
-        ValueError
-            Content of the system file cannot be converted to float.
-
-        """
-        with open(system_path) as system_file:
-            content = system_file.read()
-            temperature = float(content)
-            # Raspbian with temp in centigrades, other Pis in millicentigrades
-            if temperature > 85.0:
-                temperature /= 1000.0
-        return temperature
-
     @property
     def temperature_maximal(self) -> float:
         """Cached system maximal temperature."""
-        if not hasattr(self, '_temperature_max'):
-            self._temperature_max = None
         if self._temperature_max is None:
             try:
-                self._temperature_max = self._read_temperature(
+                self._temperature_max = read_temperature(
                     '/sys/class/thermal/thermal_zone0/trip_point_0_temp'
                 )
             except FileNotFoundError:
                 self._temperature_max = self.RandomTemperature.DEFAULT.value
-            except Exception as errmsg:
-                self._logger.error(errmsg)
         return self._temperature_max
 
     @property
     def temperature(self) -> float:
         """Read system current temperature."""
-        if not hasattr(self, '_temperature'):
-            self._temperature = None
+        temperature = None
         try:
-            self._temperature = self._read_temperature(
+            temperature = read_temperature(
                 '/sys/class/thermal/thermal_zone0/temp'
             )
         except FileNotFoundError:
-            res = self.RandomTemperature.RESOLUTION.value
-            min = self.RandomTemperature.MINIMUM.value * res
-            max = self.RandomTemperature.MAXIMUM.value * res
-            self._temperature = randint(min, max)
-            self._temperature = float(self._temperature // res)
-        except Exception as errmsg:
-            self._logger.error(errmsg)
-        return self._filter.result(self._temperature)
+            resval = self.RandomTemperature.RESOLUTION.value
+            minval = self.RandomTemperature.MINIMUM.value * resval
+            maxval = self.RandomTemperature.MAXIMUM.value * resval
+            temperature = randint(minval, maxval)
+            temperature = float(temperature // resval)
+        return self._filter.result(temperature)
 
     def temp2perc(self, temperature: float) -> float:
         """Calculate percentage from temperature.
@@ -266,7 +264,7 @@ class device(modIot.Plugin):
         self._timer.stop()
         super().finish()
 
-    def _callback_timer_temperature(self, *arg, **kwargs):
+    def _callback_timer_temperature(self):
         """Publish temperature."""
         self.publish_temperature()
         self.publish_percentage()
@@ -285,9 +283,11 @@ class device(modIot.Plugin):
             if value == modIot.Command.RESET.value:
                 self.period = self.Timer.DEFAULT.value
                 self.publish_status()
-                self._logger.warning(f'Device reset')
+                msg = f'Device reset'
+                self._logger.warning(msg)
         # Change timer period
         if parameter == Parameter.PERIOD.value \
             and measure == modIot.Measure.VALUE.value:
             self.period = value
-            self._logger.warning(f'Timer period set to {self.period}s')
+            msg = f'Timer period set to {self.period}s'
+            self._logger.warning(msg)

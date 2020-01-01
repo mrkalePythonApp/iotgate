@@ -28,7 +28,7 @@ import logging
 from gbj_sw import iot as modIot
 
 
-class device(modIot.Plugin):
+class Device(modIot.Plugin):
     """Plugin class."""
 
     def __init__(self):

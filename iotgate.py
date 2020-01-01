@@ -19,7 +19,7 @@ Script provides following functionalities:
 __version__ = '0.1.0'
 __status__ = 'Beta'
 __author__ = 'Libor Gabaj'
-__copyright__ = 'Copyright 2019, ' + __author__
+__copyright__ = 'Copyright 2019-2020, ' + __author__
 __credits__ = [__author__]
 __license__ = 'MIT'
 __maintainer__ = __author__
@@ -36,7 +36,6 @@ from importlib import util as imp
 # Third party modules
 from gbj_sw import utils as modUtils
 from gbj_sw import config as modConfig
-from gbj_sw import iot as modIot
 
 
 ###############################################################################
@@ -45,19 +44,11 @@ from gbj_sw import iot as modIot
 class Script:
     """Script parameters."""
 
-    (
-        fullname, basename, name, service,
-    ) = (
-            None, None, None, False,
-        )
+    (fullname, basename, name, service) = (None, None, None, False)
 
 class Actuator:
     """Objects of respective processors."""
-    (
-        cmdline, logger, gate,
-    ) = (
-        None, None, None,
-    )
+    (cmdline, logger, gate) = (None, None, None)
 
 
 ###############################################################################
@@ -148,6 +139,7 @@ def setup_logger():
 
 
 def setup_plugins():
+    """Import all plugins."""
     plugins_path, _, module_files = next(os.walk(Actuator.cmdline.plugindir))
     # Import plugin modules
     devices = {}
@@ -161,7 +153,7 @@ def setup_plugins():
             spec = imp.spec_from_file_location(module_file, module_path)
             plugin_module = imp.module_from_spec(spec)
             spec.loader.exec_module(plugin_module)
-            plugin = plugin_module.device()
+            plugin = plugin_module.Device()
             plugin_name = os.path.splitext(plugin_module.__name__)[0]
             plugin_version = plugin_module.__version__
             plugin_id = plugin.id
@@ -170,7 +162,7 @@ def setup_plugins():
                 f'Loaded plugin "{plugin_name}", version {plugin_version}' \
                 f', id "{plugin_id}"'
             Actuator.logger.info(msg)
-        except Exception as errmsg:
+        except TypeError as errmsg:
             errmsg = f'Cannot load plugin "{module_path}": {errmsg}'
             Actuator.logger.error(errmsg)
     # Put list of supported devices to application plugin

@@ -15,7 +15,7 @@
 __version__ = '0.1.0'
 __status__ = 'Beta'
 __author__ = 'Libor Gabaj'
-__copyright__ = 'Copyright 2019, ' + __author__
+__copyright__ = 'Copyright 2019-2020, ' + __author__
 __credits__ = [__author__]
 __license__ = 'MIT'
 __maintainer__ = __author__
@@ -39,7 +39,7 @@ class Parameter(modIot.Parameter):
     PERIOD = 'period'
 
 
-class device(modIot.Plugin):
+class Device(modIot.Plugin):
     """Plugin class."""
 
     class Timer(Enum):
@@ -76,8 +76,8 @@ class device(modIot.Plugin):
     @property
     def id(self) -> str:
         name = path.splitext(__name__)[0]
-        id = name.split('_')[1]
-        return id
+        device_id = name.split('_')[1]
+        return device_id
 
     @property
     def period(self) -> float:
@@ -118,166 +118,51 @@ class device(modIot.Plugin):
         """Define MQTT management."""
         self.mqtt_client = modMqtt.MqttBroker(
             clientid=self.id,
-            connect=self._callback_on_connect,
-            disconnect=self._callback_on_disconnect,
-            subscribe=self._callback_on_subscribe,
             message=self._callback_on_message,
         )
         # Set last will and testament
-        try:
-            topic = self.get_topic(modIot.Category.STATUS)
-            self.mqtt_client.lwt(modIot.Status.OFFLINE.value, topic)
-        except Exception as errmsg:
-            self._logger.error(errmsg)
+        topic = self.get_topic(modIot.Category.STATUS)
+        self.mqtt_client.lwt(modIot.Status.OFFLINE.value, topic)
         # Connect to MQTT broker
-        try:
-            section = self.MqttConfig.GROUP_BROKER.value
-            username = self.config.option('username', section)
-            password = self.config.option('password', section)
-            host = self.config.option('host', section)
-            port = self.config.option('port', section)
-
-            self.mqtt_client.connect(
-                username=username,
-                password=password,
-                host=host,
-                port=port,
-                )
-        except Exception as errmsg:
-            self._logger.error(errmsg)
-
-    def _callback_on_connect(self,
-                             client: modMqtt.mqttclient,
-                             userdata: Any,
-                             flags: dict(),
-                             rc: int) -> NoReturn:
-        """Process actions when the broker responds to a connection request.
-
-        Arguments
-        ---------
-        client
-            MQTT client instance for this callback.
-        userdata
-            The private user data.
-        flags
-            Response flags sent by the MQTT broker.
-        rc
-            The connection result (result code).
-
-        """
-        if rc == 0:
-            msg = f'Connected to {self.mqtt_client}: {userdata} ({rc=})'
-            self._logger.debug(msg)
-        else:
-            errmsg = f'Connection to MQTT broker failed: {userdata} ({rc=})'
-            self._logger.error(errmsg)
-
-    def _callback_on_disconnect(self,
-                                client: modMqtt.mqttclient,
-                                userdata: Any,
-                                rc: int) -> NoReturn:
-        """Process actions when the client disconnects from the broker.
-
-        Arguments
-        ---------
-        client
-            MQTT client instance for this callback.
-        userdata
-            The private user data.
-        rc
-            The connection result (result code).
-
-        See Also
-        --------
-        gbj_sw.mqtt._on_connect()
-            Description of callback arguments for proper utilizing.
-
-        """
-        msg = f'Disconnected from {self.mqtt_client}: {userdata} ({rc=})'
-        self._logger.warning(msg)
-
-    def _mqtt_message_log(
-            self,
-            message: modMqtt.mqttclient.MQTTMessage) -> NoReturn:
-        """Log receiving from an MQTT topic.
-
-        Arguments
-        ---------
-        message
-            This is an object with members `topic`, `payload`, `qos`, `retain`.
-
-        """
-        if message.payload is None:
-            payload = "None"
-        elif len(message.payload):
-            payload = message.payload.decode('utf-8')
-        else:
-            payload = "Empty"
-        topic = message.topic
-        qos = message.qos
-        retain = bool(message.retain)
-        msg = f'MQTT {topic=}, {qos=}, {retain=}: {payload}'
-        self._logger.debug(msg)
-
-    def _callback_on_subscribe(self,
-                               client: modMqtt.mqttclient,
-                               userdata: Any,
-                               mid: int,
-                               granted_qos: int) -> NoReturn:
-        """Process actions when the broker responds to a subscribe request.
-
-        Arguments
-        ---------
-        client
-            MQTT client instance for this callback.
-        userdata
-            The private user data.
-        mid
-            The message ID from the subscribe request.
-        granted_qos
-            The list of integers that give the QoS level the broker has granted
-            for each of the different subscription requests.
-
-        """
-        pass
+        section = self.MqttConfig.GROUP_BROKER.value
+        username = self.config.option('username', section)
+        password = self.config.option('password', section)
+        host = self.config.option('host', section)
+        port = self.config.option('port', section)
+        self.mqtt_client.connect(
+            username=username,
+            password=password,
+            host=host,
+            port=port,
+            )
 
     def _callback_on_message(
-        self,
-        client: modMqtt.mqttclient,
-        userdata: Any,
-        message: modMqtt.mqttclient.MQTTMessage) -> NoReturn:
+            self,
+            userdata: Any,
+            message: modMqtt.mqttclient.MQTTMessage) -> NoReturn:
         """Process actions when a non-filtered message has been received.
 
         Arguments
         ---------
-        client
-            MQTT client instance for this callback.
         userdata
             The private user data.
         message
             The object with members `topic`, `payload`, `qos`, `retain`.
 
-        Notes
-        -----
-        - The topic that the client subscribes to and the message does not match
-        an existing topic filter callback.
-        - Use message_callback_add() to define a callback that will be called for
-        specific topic filters. This function serves as fallback when none
-        topic filter matched.
-
         """
-        self._mqtt_message_log(message)
         topic = message.topic
         payload = message.payload
-        if payload is None or len(payload) == 0:
-            self._logger.warning(f'Ignored empty MQTT message')
+        if not payload:
+            errmsg = f'Ignored empty MQTT message'
+            self._logger.warning(errmsg)
             return
         payload = payload.decode('utf-8')
         # Parse topic
         maxvars = 4
         msg_parts = topic.split(self.Separator.TOPIC.value, maxvars)
         if len(msg_parts) > maxvars:
-            self._logger.warning('Ignored too long topic "{topic}"')
+            errmsg = f'Ignored too long topic "{topic}"'
+            self._logger.warning(errmsg)
             return
         msg_parts.extend([None] * (maxvars - len(msg_parts)))
         device_id, category, parameter, measure = msg_parts
@@ -332,7 +217,7 @@ class device(modIot.Plugin):
         self.mqtt_client.disconnect()
         super().finish()
 
-    def _callback_timer_reconnect(self, *arg, **kwargs):
+    def _callback_timer_reconnect(self):
         """Execute MQTT reconnect."""
         if self.mqtt_client.connected:
             return
@@ -357,9 +242,11 @@ class device(modIot.Plugin):
             if value == modIot.Command.RESET.value:
                 self.period = self.Timer.DEFAULT.value
                 self.publish_status()
-                self._logger.warning(f'Device reset')
+                msg = f'Device reset'
+                self._logger.warning(msg)
         # Change timer period
         if parameter == Parameter.PERIOD.value \
                 and measure == modIot.Measure.VALUE.value:
             self.period = value
-            self._logger.warning(f'Timer period set to {self.period}s')
+            msg = f'Timer period set to {self.period}s'
+            self._logger.warning(msg)
