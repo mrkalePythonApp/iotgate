@@ -65,6 +65,9 @@ class Device(modIot.Plugin):
         # Device parameters
         self.set_param(self.period,
                        Parameter.PERIOD,
+                       modIot.Measure.VALUE)
+        self.set_param(self.period,
+                       Parameter.PERIOD,
                        modIot.Measure.DEFAULT)
         self.set_param(self.Timer.MINIMUM.value,
                        Parameter.PERIOD,
@@ -74,7 +77,8 @@ class Device(modIot.Plugin):
                        modIot.Measure.MAXIMUM)
 
     @property
-    def id(self) -> str:
+    def did(self) -> str:
+        """Device identifier."""
         name = path.splitext(__name__)[0]
         device_id = name.split('_')[1]
         return device_id
@@ -82,34 +86,32 @@ class Device(modIot.Plugin):
     @property
     def period(self) -> float:
         """Current timer period in seconds."""
-        if not hasattr(self, '_period') or self._period is None:
-            self._period = self.Timer.DEFAULT.value
-        return self._period
+        val = self.get_param(Parameter.PERIOD,
+                             modIot.Measure.VALUE,
+                             self.Timer.DEFAULT.value)
+        return val
 
     @period.setter
-    def period(self, period: float) -> NoReturn:
+    def period(self, period: float):
         """Sanitize and set new timer period in seconds."""
         try:
             old = self.period
-            self._period = float(period or self.Timer.DEFAULT.value)
-            if old == self._period:
+            new = float(period or self.Timer.DEFAULT.value)
+            if old == new:
                 raise ValueError
         except (ValueError, TypeError):
             pass
         else:
-            # Sanitize new period
-            self._period = min(max(abs(self._period),
-                                   self.Timer.MINIMUM.value),
-                               self.Timer.MAXIMUM.value)
-            # Register new period
-            self.set_param(self._period,
-                           Parameter.PERIOD,
-                           modIot.Measure.DEFAULT)
-            # Publish new period
-            self.publish_param(Parameter.PERIOD, modIot.Measure.DEFAULT)
-            # Apply new period
+            # Sanitize new value
+            new = min(max(abs(new), self.Timer.MINIMUM.value),
+                      self.Timer.MAXIMUM.value)
+            # Register new value
+            self.set_param(new, Parameter.PERIOD, modIot.Measure.VALUE)
+            # Publish new value
+            self.publish_param(Parameter.PERIOD, modIot.Measure.VALUE)
+            # Apply new value
             if self._timer:
-                self._timer.period = self._period
+                self._timer.period = new
 
 ###############################################################################
 # MQTT actions
@@ -117,7 +119,7 @@ class Device(modIot.Plugin):
     def _setup_mqtt(self) -> NoReturn:
         """Define MQTT management."""
         self.mqtt_client = modMqtt.MqttBroker(
-            clientid=self.id,
+            clientid=self.did,
             message=self._callback_on_message,
         )
         # Set last will and testament
@@ -153,16 +155,16 @@ class Device(modIot.Plugin):
         topic = message.topic
         payload = message.payload
         if not payload:
-            errmsg = f'Ignored empty MQTT message'
-            self._logger.warning(errmsg)
+            log = f'Ignored empty MQTT message'
+            self._logger.warning(log)
             return
         payload = payload.decode('utf-8')
         # Parse topic
         maxvars = 4
         msg_parts = topic.split(self.Separator.TOPIC.value, maxvars)
         if len(msg_parts) > maxvars:
-            errmsg = f'Ignored too long topic "{topic}"'
-            self._logger.warning(errmsg)
+            log = f'Ignored too long topic "{topic}"'
+            self._logger.warning(log)
             return
         msg_parts.extend([None] * (maxvars - len(msg_parts)))
         device_id, category, parameter, measure = msg_parts
@@ -219,14 +221,8 @@ class Device(modIot.Plugin):
 
     def _callback_timer_reconnect(self):
         """Execute MQTT reconnect."""
-        if self.mqtt_client.connected:
-            return
-        self._logger.warning('Reconnecting to MQTT broker')
-        try:
+        if not self.mqtt_client.connected:
             self.mqtt_client.reconnect()
-        except SystemError as errmsg:
-            errmsg = f'Reconnection to MQTT broker failed with error: {errmsg}'
-            self._logger.error(errmsg)
 
     def process_command(self,
                         value: str,
@@ -240,13 +236,12 @@ class Device(modIot.Plugin):
                 self.publish_status()
             # Reset status
             if value == modIot.Command.RESET.value:
-                self.period = self.Timer.DEFAULT.value
-                self.publish_status()
-                msg = f'Device reset'
-                self._logger.warning(msg)
+                self.period = None
+                log = f'Device reset'
+                self._logger.warning(log)
         # Change timer period
         if parameter == Parameter.PERIOD.value \
                 and measure == modIot.Measure.VALUE.value:
             self.period = value
-            msg = f'Timer period set to {self.period}s'
-            self._logger.warning(msg)
+            log = f'Timer period set to {self.period}s'
+            self._logger.warning(log)

@@ -156,15 +156,15 @@ def setup_plugins():
             plugin = plugin_module.Device()
             plugin_name = os.path.splitext(plugin_module.__name__)[0]
             plugin_version = plugin_module.__version__
-            plugin_id = plugin.id
+            plugin_id = plugin.did
             devices[plugin_id] = plugin
             msg = \
-                f'Loaded plugin "{plugin_name}", version {plugin_version}' \
-                f', id "{plugin_id}"'
+                f'Loaded plugin="{plugin_name}", version={plugin_version}' \
+                f', did="{plugin_id}"'
             Actuator.logger.info(msg)
         except TypeError as errmsg:
-            errmsg = f'Cannot load plugin "{module_path}": {errmsg}'
-            Actuator.logger.error(errmsg)
+            log = f'Cannot load plugin "{module_path}": {errmsg}'
+            Actuator.logger.error(log)
     # Put list of supported devices to application plugin
     if Script.name in devices:
         Actuator.gate = devices[Script.name]
@@ -172,8 +172,8 @@ def setup_plugins():
         for name, plugin in devices.items():
             Actuator.gate.devices[name] = plugin
     else:
-        errmsg = f'No plugin for "{Script.basename}"'
-        Actuator.logger.error(errmsg)
+        log = f'No plugin for "{Script.basename}"'
+        Actuator.logger.error(log)
 
 def setup():
     """Global initialization."""

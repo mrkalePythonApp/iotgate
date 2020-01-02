@@ -77,7 +77,7 @@ class Device(modIot.Plugin):
         MAXIMUM = 60.0
 
     class RandomTemperature(Enum):
-        """Parameters fo randomly generated temperature on Windows."""
+        """Parameters for randomly generated temperature on Windows."""
         RESOLUTION = 10  # int: Resolution of generated temperature
         DEFAULT = 75.0   # Maximal allowed temperature
         MINIMUM = 40.0   # Interval for random temperatures
@@ -91,13 +91,19 @@ class Device(modIot.Plugin):
         self._timer = modTimer.Timer(self.period,
                                      self._callback_timer_temperature,
                                      name='SoCtemp')
-        self._filter = modFilter.Running()
-        self._filter.stat_type = self._filter.StatisticType.AVERAGE
+        # self._filter = modFilter.Running()
+        # self._filter.stat_type = self._filter.StatisticType.AVERAGE
         # self._filter.stat_type = self._filter.StatisticType.MEDIAN
-        # self._filter = modFilter.Exponential()
-        # self._filter.factor = self._filter.Factor.OPTIMAL.value
-        # Fixed device parameters
+        self._filter = modFilter.Exponential()
+        self._filter.factor = self._filter.Factor.OPTIMAL.value
+        # Device parameters
+        self.set_param(self.temperature_maximal,
+                       Parameter.TEMPERATURE,
+                       modIot.Measure.MAXIMUM)
         self.set_param(self.period,
+                       Parameter.PERIOD,
+                       modIot.Measure.VALUE)
+        self.set_param(self.Timer.DEFAULT.value,
                        Parameter.PERIOD,
                        modIot.Measure.DEFAULT)
         self.set_param(self.Timer.MINIMUM.value,
@@ -106,46 +112,41 @@ class Device(modIot.Plugin):
         self.set_param(self.Timer.MAXIMUM.value,
                        Parameter.PERIOD,
                        modIot.Measure.MAXIMUM)
-        #
-        self.set_param(self.temperature_maximal,
-                       Parameter.TEMPERATURE,
-                       modIot.Measure.MAXIMUM)
 
     @property
-    def id(self) -> str:
+    def did(self) -> str:
+        """Device identifier."""
         return 'server'
 
     @property
     def period(self) -> float:
         """Current timer period in seconds."""
-        if not hasattr(self, '_period') or self._period is None:
-            self._period = self.Timer.DEFAULT.value
-        return self._period
+        val = self.get_param(Parameter.PERIOD,
+                             modIot.Measure.VALUE,
+                             self.Timer.DEFAULT.value)
+        return val
 
     @period.setter
     def period(self, period: float):
         """Sanitize and set new timer period in seconds."""
         try:
             old = self.period
-            self._period = float(period or self.Timer.DEFAULT.value)
-            if old == self._period:
+            new = float(period or self.Timer.DEFAULT.value)
+            if old == new:
                 raise ValueError
         except (ValueError, TypeError):
             pass
         else:
-            # Sanitize new period
-            self._period = min(max(abs(self._period),
-                                   self.Timer.MINIMUM.value),
-                               self.Timer.MAXIMUM.value)
-            # Register new period
-            self.set_param(self._period,
-                           Parameter.PERIOD,
-                           modIot.Measure.DEFAULT)
-            # Publish new period
-            self.publish_param(Parameter.PERIOD, modIot.Measure.DEFAULT)
-            # Apply new period
+            # Sanitize new value
+            new = min(max(abs(new), self.Timer.MINIMUM.value),
+                      self.Timer.MAXIMUM.value)
+            # Register new value
+            self.set_param(new, Parameter.PERIOD, modIot.Measure.VALUE)
+            # Publish new value
+            self.publish_param(Parameter.PERIOD, modIot.Measure.VALUE)
+            # Apply new value
             if self._timer:
-                self._timer.period = self._period
+                self._timer.period = new
 
 ###############################################################################
 # MQTT actions
@@ -281,13 +282,12 @@ class Device(modIot.Plugin):
                 self.publish_status()
             # Reset status
             if value == modIot.Command.RESET.value:
-                self.period = self.Timer.DEFAULT.value
-                self.publish_status()
-                msg = f'Device reset'
-                self._logger.warning(msg)
+                self.period = None
+                log = f'Device reset'
+                self._logger.warning(log)
         # Change timer period
         if parameter == Parameter.PERIOD.value \
             and measure == modIot.Measure.VALUE.value:
             self.period = value
-            msg = f'Timer period set to {self.period}s'
-            self._logger.warning(msg)
+            log = f'Timer period set to {self.period}s'
+            self._logger.warning(log)
