@@ -57,7 +57,6 @@ class Device(modIot.Plugin):
         super().__init__()
         self._logger = logging.getLogger(' '.join([__name__, __version__]))
         # Device attributes
-        self.config = None  # Access to configuration INI file
         self.devices = {}  # List of processed proxy devices
         self._timer = modTimer.Timer(self.period,
                                      self._callback_timer_reconnect,
@@ -199,10 +198,10 @@ class Device(modIot.Plugin):
         self._setup_mqtt()
         self.publish_connect(modIot.Status.ONLINE)
         self.publish_status()
-
         # Start all devices except this one and subscribe to their MQTT topics
         for device in self.devices.values():
             if device != self:
+                device.config = self.config
                 device.mqtt_client = self.mqtt_client
                 device.begin()
             self.mqtt_client.subscribe(device.device_topic)

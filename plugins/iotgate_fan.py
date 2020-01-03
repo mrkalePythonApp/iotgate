@@ -44,7 +44,7 @@ class Parameter(modIot.Parameter):
 def fan_command(func):
     """Decorator for handling commands for the fan."""
     def _decorator(self):
-        func()
+        func(self)
         self.set_param(self.activity, Parameter.ACTIVITY)
         self.publish_param(Parameter.ACTIVITY)
     return _decorator
@@ -117,7 +117,9 @@ class Device(modIot.Plugin):
     def activity(self) -> modIot.Status:
         """Current fan activity."""
         pin = self.GpioPin.FAN.value
-        if self._pi.is_pin_on(pin):
+        if self._pi.is_pin_input(pin):
+            activity = modIot.Status.IDLE
+        elif self._pi.is_pin_on(pin):
             activity = modIot.Status.ACTIVE
         elif self._pi.is_pin_off(pin):
             activity = modIot.Status.IDLE
@@ -150,10 +152,11 @@ class Device(modIot.Plugin):
             # Register new value
             self.set_param(new,
                            Parameter.PERCENTAGE_ON,
-                           modIot.Measure.DEFAULT)
+                           modIot.Measure.VALUE)
             # Publish new value
             self.publish_param(Parameter.PERCENTAGE_ON, modIot.Measure.VALUE)
             # Apply new value
+            self.fan_process()
 
     @property
     def percoff(self) -> float:
@@ -180,11 +183,11 @@ class Device(modIot.Plugin):
             # Register new period
             self.set_param(new,
                            Parameter.PERCENTAGE_OFF,
-                           modIot.Measure.DEFAULT)
+                           modIot.Measure.VALUE)
             # Publish new period
-            self.publish_param(Parameter.PERCENTAGE_OFF,
-                               modIot.Measure.DEFAULT)
+            self.publish_param(Parameter.PERCENTAGE_OFF, modIot.Measure.VALUE)
             # Apply new period
+            self.fan_process()
 
     @fan_command
     def fan_on(self) -> NoReturn:
