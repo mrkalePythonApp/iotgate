@@ -44,9 +44,11 @@ class Parameter(modIot.Parameter):
 def fan_command(func):
     """Decorator for handling commands for the fan."""
     def _decorator(self):
-        func(self)
+        command = func(self)
         self.set_param(self.activity, Parameter.ACTIVITY)
         self.publish_param(Parameter.ACTIVITY)
+        log = f'Executed fan command {command.name}'
+        self.logger.info(log)
     return _decorator
 
 
@@ -72,9 +74,8 @@ class Device(modIot.Plugin):
     def __init__(self):
         super().__init__()
         self._logger = logging.getLogger(' '.join([__name__, __version__]))
-        # Device attributes
-        self._pi = classPi()
-        self._percentage = None
+        self._pi = classPi()  # Handler of microcomputer GPIO
+        self._percentage = None  # Cached received SoC temperature percentage
         # Device parameters
         self.set_param(self.GpioPin.FAN.value,
                        Parameter.CONTROL_PIN)
@@ -109,6 +110,11 @@ class Device(modIot.Plugin):
     def did(self):
         """Device identifier."""
         return 'sfan'
+    
+    @property
+    def logger(self):
+        """Published logger object for loging from external decoraors."""
+        return self._logger
 
 ###############################################################################
 # Fan actions
@@ -190,19 +196,22 @@ class Device(modIot.Plugin):
             self.fan_process()
 
     @fan_command
-    def fan_on(self) -> NoReturn:
+    def fan_on(self) -> modIot.Command:
         """Turn the fan ON."""
         self._pi.pin_on(self.GpioPin.FAN.value)
+        return modIot.Command.TURN_ON
 
     @fan_command
-    def fan_off(self) -> NoReturn:
+    def fan_off(self) -> modIot.Command:
         """Turn the fan OFF."""
         self._pi.pin_off(self.GpioPin.FAN.value)
+        return modIot.Command.TURN_OFF
 
     @fan_command
-    def fan_toggle(self) -> NoReturn:
+    def fan_toggle(self) -> modIot.Command:
         """Toggle the fan."""
         self._pi.pin_toggle(self.GpioPin.FAN.value)
+        return modIot.Command.TOGGLE
 
     def fan_process(self) -> NoReturn:
         """Process recent good received temperature percentage from MQTT."""
