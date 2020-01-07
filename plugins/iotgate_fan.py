@@ -7,9 +7,13 @@
 - The plugin represents the cooling fan directly, i.e., is able to control it
   directly with GPIO pins.
 
-- The plugin receives commands for
-  - publishing status
-  - turning on and off the fan and for toggling it
+- The plugin receives commands
+  - publish status
+  - reset plugin
+  - turn on/off/toggle the cooling fan
+
+- The plugin receives data
+  - SoC temperature percentage from plugin `server`
 
  """
 __version__ = '0.1.0'
@@ -31,8 +35,8 @@ from gbj_sw import iot as modIot
 from gbj_hw.orangepi import OrangePiOne as classPi
 
 
-class Parameter(modIot.Parameter):
-    """Enumeration of expected MQTT topic parameters."""
+class Parameter(modIot.Parameter, Enum):
+    """Enumeration of plugin parameters."""
     CONTROL_PIN = 'pin'
     ACTIVITY = 'run'
     PERCENTAGE_ON = 'percon'
@@ -110,10 +114,10 @@ class Device(modIot.Plugin):
     def did(self):
         """Device identifier."""
         return 'sfan'
-    
+
     @property
     def logger(self):
-        """Published logger object for loging from external decoraors."""
+        """Published logger object for loging from external decorators."""
         return self._logger
 
 ###############################################################################
@@ -229,10 +233,10 @@ class Device(modIot.Plugin):
         super().begin()
         self.publish_status()
 
-    def process_command(self,
-                        value: str,
-                        parameter: Optional[str],
-                        measure: Optional[str]) -> NoReturn:
+    def process_own_command(self,
+                            value: str,
+                            parameter: Optional[str],
+                            measure: Optional[str]) -> NoReturn:
         """Process command intended just for this device."""
         # Generic commands
         if parameter is None and measure is None:

@@ -31,6 +31,12 @@ from gbj_sw import timer as modTimer
 from gbj_sw import statfilter as modFilter
 
 
+class Parameter(modIot.Parameter, Enum):
+    """Enumeration of plugin parameters."""
+    PERIOD = 'period'
+    TEMPERATURE = 'temp'
+
+
 def read_temperature(system_path: str) -> float:
     """Read system file and interpret the content as the temperature.
 
@@ -59,12 +65,6 @@ def read_temperature(system_path: str) -> float:
         if temperature > 85.0:
             temperature /= 1000.0
     return temperature
-
-
-class Parameter(modIot.Parameter):
-    """Enumeration of expected MQTT topic parameters."""
-    PERIOD = 'period'
-    TEMPERATURE = 'temp'
 
 
 class Device(modIot.Plugin):
@@ -270,10 +270,10 @@ class Device(modIot.Plugin):
         self.publish_temperature()
         self.publish_percentage()
 
-    def process_command(self,
-                        value: str,
-                        parameter: Optional[str],
-                        measure: Optional[str]) -> NoReturn:
+    def process_own_command(self,
+                            value: str,
+                            parameter: Optional[str],
+                            measure: Optional[str]) -> NoReturn:
         """Process command intended just for this device."""
         # Generic commands
         if parameter is None and measure is None:

@@ -34,7 +34,7 @@ from gbj_sw import mqtt as modMqtt
 from gbj_sw import timer as modTimer
 
 
-class Parameter(modIot.Parameter):
+class Parameter(modIot.Parameter, Enum):
     """Enumeration of expected MQTT topic parameters."""
     PERIOD = 'period'
 
@@ -48,10 +48,15 @@ class Device(modIot.Plugin):
         MINIMUM = 5.0
         MAXIMUM = 180.0
 
-
     class MqttConfig(Enum):
         """MQTT configuration parameters for INI file."""
-        GROUP_BROKER = 'MQTTbroker'  # INI section
+        SECTION = 'MQTTbroker'  # INI section
+        OPTION_HOST = 'host'
+        OPTION_PORT = 'port'
+        OPTION_USERNAME = 'username'
+        OPTION_PASSWORD = 'password'
+        DEFAULT_HOST = 'localhost'
+        DEFAULT_PORT = 1883
 
     def __init__(self) -> NoReturn:
         super().__init__()
@@ -125,11 +130,13 @@ class Device(modIot.Plugin):
         topic = self.get_topic(modIot.Category.STATUS)
         self.mqtt_client.lwt(modIot.Status.OFFLINE.value, topic)
         # Connect to MQTT broker
-        section = self.MqttConfig.GROUP_BROKER.value
-        username = self.config.option('username', section)
-        password = self.config.option('password', section)
-        host = self.config.option('host', section)
-        port = self.config.option('port', section)
+        section = self.MqttConfig.SECTION.value
+        username = self.config.option(self.MqttConfig.OPTION_USERNAME, section)
+        password = self.config.option(self.MqttConfig.OPTION_PASSWORD, section)
+        host = self.config.option(self.MqttConfig.OPTION_HOST, section,
+                                  self.MqttConfig.DEFAULT_HOST)
+        port = self.config.option(self.MqttConfig.OPTION_PORT, section,
+                                  self.MqttConfig.DEFAULT_PORT)
         self.mqtt_client.connect(
             username=username,
             password=password,
@@ -171,16 +178,20 @@ class Device(modIot.Plugin):
         if category == modIot.Category.COMMAND.value:
             if device_id in self.devices:
                 device = self.devices[device_id]
-                device.process_command(payload, parameter, measure)
-        # Process foreign status and data (interdevice dependency)
+                device.userdata = userdata
+                device.process_own_command(payload, parameter, measure)
+        # Process foreign status, data, and command (interdevice dependency)
         else:
             for device in self.devices.values():
                 if device_id == device.id:
                     continue
+                device.userdata = userdata
                 if category == modIot.Category.STATUS.value:
                     device.process_status(payload, parameter, measure, device)
                 elif category == modIot.Category.DATA.value:
                     device.process_data(payload, parameter, measure, device)
+                elif category == modIot.Category.COMMAND.value:
+                    device.process_command(payload, parameter, measure, device)
 
     def publish_connect(self, status: modIot.Status):
         """Publish connection status to MQTT broker."""
@@ -223,10 +234,10 @@ class Device(modIot.Plugin):
         if not self.mqtt_client.connected:
             self.mqtt_client.reconnect()
 
-    def process_command(self,
-                        value: str,
-                        parameter: Optional[str],
-                        measure: Optional[str]) -> NoReturn:
+    def process_own_command(self,
+                            value: str,
+                            parameter: Optional[str],
+                            measure: Optional[str]) -> NoReturn:
         """Process command intended just for this device."""
         # Generic commands
         if parameter is None and measure is None:
