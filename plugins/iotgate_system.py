@@ -31,12 +31,6 @@ from gbj_sw import timer as modTimer
 from gbj_sw import statfilter as modFilter
 
 
-class Parameter(modIot.Parameter, Enum):
-    """Enumeration of plugin parameters."""
-    PERIOD = 'period'
-    TEMPERATURE = 'temp'
-
-
 def read_temperature(system_path: str) -> float:
     """Read system file and interpret the content as the temperature.
 
@@ -70,6 +64,11 @@ def read_temperature(system_path: str) -> float:
 class Device(modIot.Plugin):
     """Plugin class."""
 
+    class Parameter(Enum):
+        """Enumeration of plugin parameters for MQTT publishing topics."""
+        PERIOD = 'period'
+        TEMPERATURE = 'temp'
+
     class Timer(Enum):
         """Period parameters for temperature reading timer."""
         DEFAULT = 5.0
@@ -98,19 +97,19 @@ class Device(modIot.Plugin):
         self._filter.factor = self._filter.Factor.OPTIMAL.value
         # Device parameters
         self.set_param(self.temperature_maximal,
-                       Parameter.TEMPERATURE,
+                       self.Parameter.TEMPERATURE,
                        modIot.Measure.MAXIMUM)
         self.set_param(self.period,
-                       Parameter.PERIOD,
+                       self.Parameter.PERIOD,
                        modIot.Measure.VALUE)
         self.set_param(self.Timer.DEFAULT.value,
-                       Parameter.PERIOD,
+                       self.Parameter.PERIOD,
                        modIot.Measure.DEFAULT)
         self.set_param(self.Timer.MINIMUM.value,
-                       Parameter.PERIOD,
+                       self.Parameter.PERIOD,
                        modIot.Measure.MINIMUM)
         self.set_param(self.Timer.MAXIMUM.value,
-                       Parameter.PERIOD,
+                       self.Parameter.PERIOD,
                        modIot.Measure.MAXIMUM)
 
     @property
@@ -121,7 +120,7 @@ class Device(modIot.Plugin):
     @property
     def period(self) -> float:
         """Current timer period in seconds."""
-        val = self.get_param(Parameter.PERIOD,
+        val = self.get_param(self.Parameter.PERIOD,
                              modIot.Measure.VALUE,
                              self.Timer.DEFAULT.value)
         return val
@@ -141,9 +140,9 @@ class Device(modIot.Plugin):
             new = min(max(abs(new), self.Timer.MINIMUM.value),
                       self.Timer.MAXIMUM.value)
             # Register new value
-            self.set_param(new, Parameter.PERIOD, modIot.Measure.VALUE)
+            self.set_param(new, self.Parameter.PERIOD, modIot.Measure.VALUE)
             # Publish new value
-            self.publish_param(Parameter.PERIOD, modIot.Measure.VALUE)
+            self.publish_param(self.Parameter.PERIOD, modIot.Measure.VALUE)
             # Apply new value
             if self._timer:
                 self._timer.period = new
@@ -156,11 +155,11 @@ class Device(modIot.Plugin):
         message = f'{self.temperature:.1f}'
         topic = self.get_topic(
             modIot.Category.DATA,
-            Parameter.TEMPERATURE,
+            self.Parameter.TEMPERATURE,
             modIot.Measure.VALUE)
         log = self.get_log(message,
                            modIot.Category.DATA,
-                           Parameter.TEMPERATURE,
+                           self.Parameter.TEMPERATURE,
                            modIot.Measure.VALUE)
         self._logger.debug(log)
         self.mqtt_client.publish(message, topic)
@@ -171,11 +170,11 @@ class Device(modIot.Plugin):
         message = f'{percentage:.1f}'
         topic = self.get_topic(
             modIot.Category.DATA,
-            Parameter.TEMPERATURE,
+            self.Parameter.TEMPERATURE,
             modIot.Measure.PERCENTAGE)
         log = self.get_log(message,
                            modIot.Category.DATA,
-                           Parameter.TEMPERATURE,
+                           self.Parameter.TEMPERATURE,
                            modIot.Measure.PERCENTAGE)
         self._logger.debug(log)
         self.mqtt_client.publish(message, topic)
@@ -286,7 +285,7 @@ class Device(modIot.Plugin):
                 log = f'Device reset'
                 self._logger.warning(log)
         # Change timer period
-        if parameter == Parameter.PERIOD.value \
+        if parameter == self.Parameter.PERIOD.value \
             and measure == modIot.Measure.VALUE.value:
             self.period = value
             log = f'Timer period set to {self.period}s'

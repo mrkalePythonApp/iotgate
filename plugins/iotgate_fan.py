@@ -35,22 +35,12 @@ from gbj_sw import iot as modIot
 from gbj_hw.orangepi import OrangePiOne as classPi
 
 
-class Parameter(modIot.Parameter, Enum):
-    """Enumeration of plugin parameters."""
-    CONTROL_PIN = 'pin'
-    ACTIVITY = 'run'
-    PERCENTAGE_ON = 'percon'
-    PERCENTAGE_OFF = 'percoff'
-    DEVICE_ID = 'server'
-    TEMPERATURE = 'temp'
-
-
 def fan_command(func):
     """Decorator for handling commands for the fan."""
     def _decorator(self):
         command = func(self)
-        self.set_param(self.activity, Parameter.ACTIVITY)
-        self.publish_param(Parameter.ACTIVITY)
+        self.set_param(self.activity, self.Parameter.ACTIVITY)
+        self.publish_param(self.Parameter.ACTIVITY)
         log = f'Executed fan command {command.name}'
         self.logger.info(log)
     return _decorator
@@ -58,6 +48,15 @@ def fan_command(func):
 
 class Device(modIot.Plugin):
     """Plugin class."""
+
+    class Parameter(Enum):
+        """Enumeration of plugin parameters for MQTT publishing topics."""
+        CONTROL_PIN = 'pin'
+        ACTIVITY = 'run'
+        PERCENTAGE_ON = 'percon'
+        PERCENTAGE_OFF = 'percoff'
+        DEVICE_ID = 'server'
+        TEMPERATURE = 'temp'
 
     class GpioPin(Enum):
         """Utilized pins of the microcomputer."""
@@ -82,32 +81,32 @@ class Device(modIot.Plugin):
         self._percentage = None  # Cached received SoC temperature percentage
         # Device parameters
         self.set_param(self.GpioPin.FAN.value,
-                       Parameter.CONTROL_PIN)
+                       self.Parameter.CONTROL_PIN)
         self.set_param(self.activity,
-                       Parameter.ACTIVITY)
+                       self.Parameter.ACTIVITY)
         self.set_param(self.percon,
-                       Parameter.PERCENTAGE_ON,
+                       self.Parameter.PERCENTAGE_ON,
                        modIot.Measure.VALUE)
         self.set_param(self.PercentageOn.DEFAULT.value,
-                       Parameter.PERCENTAGE_ON,
+                       self.Parameter.PERCENTAGE_ON,
                        modIot.Measure.DEFAULT)
         self.set_param(self.PercentageOn.MINIMUM.value,
-                       Parameter.PERCENTAGE_ON,
+                       self.Parameter.PERCENTAGE_ON,
                        modIot.Measure.MINIMUM)
         self.set_param(self.PercentageOn.MAXIMUM.value,
-                       Parameter.PERCENTAGE_ON,
+                       self.Parameter.PERCENTAGE_ON,
                        modIot.Measure.MAXIMUM)
         self.set_param(self.percoff,
-                       Parameter.PERCENTAGE_OFF,
+                       self.Parameter.PERCENTAGE_OFF,
                        modIot.Measure.VALUE)
         self.set_param(self.PercentageOff.DEFAULT.value,
-                       Parameter.PERCENTAGE_OFF,
+                       self.Parameter.PERCENTAGE_OFF,
                        modIot.Measure.DEFAULT)
         self.set_param(self.PercentageOff.MINIMUM.value,
-                       Parameter.PERCENTAGE_OFF,
+                       self.Parameter.PERCENTAGE_OFF,
                        modIot.Measure.MINIMUM)
         self.set_param(self.PercentageOff.MAXIMUM.value,
-                       Parameter.PERCENTAGE_OFF,
+                       self.Parameter.PERCENTAGE_OFF,
                        modIot.Measure.MAXIMUM)
 
     @property
@@ -140,7 +139,7 @@ class Device(modIot.Plugin):
     @property
     def percon(self) -> float:
         """Current temperature for turning fan ON in percentage."""
-        val = self.get_param(Parameter.PERCENTAGE_ON,
+        val = self.get_param(self.Parameter.PERCENTAGE_ON,
                              modIot.Measure.VALUE,
                              self.PercentageOn.DEFAULT.value)
         return val
@@ -161,17 +160,18 @@ class Device(modIot.Plugin):
                       self.PercentageOn.MAXIMUM.value)
             # Register new value
             self.set_param(new,
-                           Parameter.PERCENTAGE_ON,
+                           self.Parameter.PERCENTAGE_ON,
                            modIot.Measure.VALUE)
             # Publish new value
-            self.publish_param(Parameter.PERCENTAGE_ON, modIot.Measure.VALUE)
+            self.publish_param(self.Parameter.PERCENTAGE_ON,
+                               modIot.Measure.VALUE)
             # Apply new value
             self.fan_process()
 
     @property
     def percoff(self) -> float:
         """Current temperature for turning fan OFF in percentage."""
-        val = self.get_param(Parameter.PERCENTAGE_OFF,
+        val = self.get_param(self.Parameter.PERCENTAGE_OFF,
                              modIot.Measure.DEFAULT,
                              self.PercentageOff.DEFAULT.value)
         return val
@@ -192,10 +192,11 @@ class Device(modIot.Plugin):
                       self.PercentageOff.MAXIMUM.value)
             # Register new period
             self.set_param(new,
-                           Parameter.PERCENTAGE_OFF,
+                           self.Parameter.PERCENTAGE_OFF,
                            modIot.Measure.VALUE)
             # Publish new period
-            self.publish_param(Parameter.PERCENTAGE_OFF, modIot.Measure.VALUE)
+            self.publish_param(self.Parameter.PERCENTAGE_OFF,
+                               modIot.Measure.VALUE)
             # Apply new period
             self.fan_process()
 
@@ -259,13 +260,13 @@ class Device(modIot.Plugin):
                 log = f'Device reset'
                 self._logger.warning(log)
         # Change percentage ON
-        if parameter == Parameter.PERCENTAGE_ON.value \
+        if parameter == self.Parameter.PERCENTAGE_ON.value \
                 and measure == modIot.Measure.VALUE.value:
             self.percon = value
             log = f'Turn ON temperature set to {self.percon}%'
             self._logger.warning(log)
         # Change percentage OFF
-        if parameter == Parameter.PERCENTAGE_OFF.value \
+        if parameter == self.Parameter.PERCENTAGE_OFF.value \
                 and measure == modIot.Measure.VALUE.value:
             self.percoff = value
             log = f'Turn OFF temperature set to {self.percoff}%'
@@ -278,10 +279,10 @@ class Device(modIot.Plugin):
                      device: modIot.Plugin) -> NoReturn:
         """Process data originating in other device."""
         # Ignore other devices but system temperature measurement
-        if device.did != Parameter.DEVICE_ID.value:
+        if device.did != self.Parameter.DEVICE_ID.value:
             return
         # Process temperature percentage
-        if parameter == Parameter.TEMPERATURE.value \
+        if parameter == self.Parameter.TEMPERATURE.value \
                 and measure == modIot.Measure.PERCENTAGE.value:
             try:
                 percentage = float(value)

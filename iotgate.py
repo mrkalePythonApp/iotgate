@@ -162,9 +162,9 @@ def setup_plugins():
                 f'Loaded plugin="{plugin_name}", version={plugin_version}' \
                 f', did="{plugin_id}"'
             Actuator.logger.info(msg)
-        except TypeError as errmsg:
+        except Exception as errmsg:
             log = f'Cannot load plugin "{module_path}": {errmsg}'
-            Actuator.logger.error(log)
+            Actuator.logger.exception(log)
     # Put list of supported devices to application plugin
     if Script.name in devices:
         Actuator.gate = devices[Script.name]

@@ -24,7 +24,6 @@ __email__ = 'libor.gabaj@gmail.com'
 
 # Standard library modules
 import logging
-from os import path
 from enum import Enum
 from typing import Optional, Any, NoReturn
 
@@ -34,13 +33,12 @@ from gbj_sw import mqtt as modMqtt
 from gbj_sw import timer as modTimer
 
 
-class Parameter(modIot.Parameter, Enum):
-    """Enumeration of expected MQTT topic parameters."""
-    PERIOD = 'period'
-
-
 class Device(modIot.Plugin):
     """Plugin class."""
+
+    class Parameter(Enum):
+        """Enumeration of plugin parameters for MQTT publishing topics."""
+        PERIOD = 'period'
 
     class Timer(Enum):
         """Period parameters for MQTT reconnecting timer."""
@@ -68,29 +66,27 @@ class Device(modIot.Plugin):
                                      name='MqttRecon')
         # Device parameters
         self.set_param(self.period,
-                       Parameter.PERIOD,
+                       self.Parameter.PERIOD,
                        modIot.Measure.VALUE)
         self.set_param(self.period,
-                       Parameter.PERIOD,
+                       self.Parameter.PERIOD,
                        modIot.Measure.DEFAULT)
         self.set_param(self.Timer.MINIMUM.value,
-                       Parameter.PERIOD,
+                       self.Parameter.PERIOD,
                        modIot.Measure.MINIMUM)
         self.set_param(self.Timer.MAXIMUM.value,
-                       Parameter.PERIOD,
+                       self.Parameter.PERIOD,
                        modIot.Measure.MAXIMUM)
 
     @property
     def did(self) -> str:
         """Device identifier."""
-        name = path.splitext(__name__)[0]
-        device_id = name.split('_')[1]
-        return device_id
+        return self.get_did(__name__)
 
     @property
     def period(self) -> float:
         """Current timer period in seconds."""
-        val = self.get_param(Parameter.PERIOD,
+        val = self.get_param(self.Parameter.PERIOD,
                              modIot.Measure.VALUE,
                              self.Timer.DEFAULT.value)
         return val
@@ -110,9 +106,9 @@ class Device(modIot.Plugin):
             new = min(max(abs(new), self.Timer.MINIMUM.value),
                       self.Timer.MAXIMUM.value)
             # Register new value
-            self.set_param(new, Parameter.PERIOD, modIot.Measure.VALUE)
+            self.set_param(new, self.Parameter.PERIOD, modIot.Measure.VALUE)
             # Publish new value
-            self.publish_param(Parameter.PERIOD, modIot.Measure.VALUE)
+            self.publish_param(self.Parameter.PERIOD, modIot.Measure.VALUE)
             # Apply new value
             if self._timer:
                 self._timer.period = new
@@ -131,12 +127,16 @@ class Device(modIot.Plugin):
         self.mqtt_client.lwt(modIot.Status.OFFLINE.value, topic)
         # Connect to MQTT broker
         section = self.MqttConfig.SECTION.value
-        username = self.config.option(self.MqttConfig.OPTION_USERNAME, section)
-        password = self.config.option(self.MqttConfig.OPTION_PASSWORD, section)
-        host = self.config.option(self.MqttConfig.OPTION_HOST, section,
-                                  self.MqttConfig.DEFAULT_HOST)
-        port = self.config.option(self.MqttConfig.OPTION_PORT, section,
-                                  self.MqttConfig.DEFAULT_PORT)
+        username = self.config.option(self.MqttConfig.OPTION_USERNAME.value,
+                                      section)
+        password = self.config.option(self.MqttConfig.OPTION_PASSWORD.value,
+                                      section)
+        host = self.config.option(self.MqttConfig.OPTION_HOST.value,
+                                  section,
+                                  self.MqttConfig.DEFAULT_HOST.value)
+        port = self.config.option(self.MqttConfig.OPTION_PORT.value,
+                                  section,
+                                  self.MqttConfig.DEFAULT_PORT.value)
         self.mqtt_client.connect(
             username=username,
             password=password,
@@ -182,16 +182,17 @@ class Device(modIot.Plugin):
                 device.process_own_command(payload, parameter, measure)
         # Process foreign status, data, and command (interdevice dependency)
         else:
-            for device in self.devices.values():
-                if device_id == device.id:
+            for plugin in self.devices.values():
+                if device_id == plugin.did:
                     continue
-                device.userdata = userdata
+                device = self.devices[device_id]  # Source device
+                plugin.userdata = userdata
                 if category == modIot.Category.STATUS.value:
-                    device.process_status(payload, parameter, measure, device)
+                    plugin.process_status(payload, parameter, measure, device)
                 elif category == modIot.Category.DATA.value:
-                    device.process_data(payload, parameter, measure, device)
+                    plugin.process_data(payload, parameter, measure, device)
                 elif category == modIot.Category.COMMAND.value:
-                    device.process_command(payload, parameter, measure, device)
+                    plugin.process_command(payload, parameter, measure, device)
 
     def publish_connect(self, status: modIot.Status):
         """Publish connection status to MQTT broker."""
@@ -250,7 +251,7 @@ class Device(modIot.Plugin):
                 log = f'Device reset'
                 self._logger.warning(log)
         # Change timer period
-        if parameter == Parameter.PERIOD.value \
+        if parameter == self.Parameter.PERIOD.value \
                 and measure == modIot.Measure.VALUE.value:
             self.period = value
             log = f'Timer period set to {self.period}s'

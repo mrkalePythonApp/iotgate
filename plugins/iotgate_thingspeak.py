@@ -29,20 +29,26 @@ from enum import Enum
 from typing import Optional, NoReturn
 
 # Custom library modules
+import paho.mqtt.publish as mqttpublish
 from gbj_sw import iot as modIot
 from gbj_sw import timer as modTimer
-import paho.mqtt.publish as mqttpublish
-
-
-class Parameter(modIot.Parameter, Enum):
-    """Enumeration of plugin parameters."""
-    PERIOD = 'period'
-    TEMPERATURE_DEVICE = 'server'
-    TEMPERATURE_PARAM = 'temp'
 
 
 class Device(modIot.Plugin):
     """Plugin class."""
+
+
+    class Parameter(Enum):
+        """Enumeration of plugin parameters for MQTT publishing topics."""
+        PERIOD = 'period'
+    
+    class Source(Enum):
+        """Enumeration of plugins parameters for processing their
+        MQTT messages.
+        
+        """
+        TEMPERATURE_SYSTEM_DID = 'server'
+        TEMPERATURE_SYSTEM_PARAMETER = 'TEMPERATURE' # Source enum name
 
     class Timer(Enum):
         """Period parameters for publishing to cloud."""
@@ -60,6 +66,7 @@ class Device(modIot.Plugin):
         OPTION_WRITE_API_KEY = 'write_api_key'
         DEFAULT_HOST = 'mqtt.thingspeak.com'
         DEFAULT_PORT = 1883
+        CLIENT_ID = socket.gethostname()
 
     class Fields(Enum):
         """Semantics of used cloud fields. Max. 8 allowed."""
@@ -69,18 +76,13 @@ class Device(modIot.Plugin):
         super().__init__()
         self._logger = logging.getLogger(' '.join([__name__, __version__]))
         # Cloud attributes
-        section = self.CloudConfig.SECTION.value
-        self._clientid = f'{socket.gethostname()}_{self.did}'
-        self._host = self.config.option(self.CloudConfig.OPTION_HOST, section,
-                                        self.CloudConfig.DEFAULT_HOST)
-        self._port = self.config.option(self.CloudConfig.OPTION_PORT, section,
-                                        self.CloudConfig.DEFAULT_PORT)
-        self._mqtt_api_key = self.config.option(
-            self.CloudConfig.OPTION_MQTT_API_KEY, section)
-        self._channel_id = self.config.option(
-            self.CloudConfig.OPTION_CHANNEL_ID, section)
-        self._write_api_key = self.config.option(
-            self.CloudConfig.OPTION_WRITE_API_KEY, section)
+        self._cloudprm = {}
+        # self._clientid = None
+        # self._host = None
+        # self._port = None
+        # self._mqtt_api_key = None
+        # self._channel_id = None
+        # self._write_api_key = None
         # Data
         self._fields = {}
         self._status = None
@@ -89,27 +91,27 @@ class Device(modIot.Plugin):
                                      name='ThingSpeak')
         # Device parameters
         self.set_param(self.period,
-                       Parameter.PERIOD,
+                       self.Parameter.PERIOD,
                        modIot.Measure.VALUE)
         self.set_param(self.Timer.DEFAULT.value,
-                       Parameter.PERIOD,
+                       self.Parameter.PERIOD,
                        modIot.Measure.DEFAULT)
         self.set_param(self.Timer.MINIMUM.value,
-                       Parameter.PERIOD,
+                       self.Parameter.PERIOD,
                        modIot.Measure.MINIMUM)
         self.set_param(self.Timer.MAXIMUM.value,
-                       Parameter.PERIOD,
+                       self.Parameter.PERIOD,
                        modIot.Measure.MAXIMUM)
 
     @property
     def did(self):
         """Device identifier."""
-        return 'thingspeak'
+        return self.get_did(__name__)
 
     @property
     def period(self) -> float:
         """Current timer period in seconds."""
-        val = self.get_param(Parameter.PERIOD,
+        val = self.get_param(self.Parameter.PERIOD,
                              modIot.Measure.VALUE,
                              self.Timer.DEFAULT.value)
         return val
@@ -129,16 +131,53 @@ class Device(modIot.Plugin):
             new = min(max(abs(new), self.Timer.MINIMUM.value),
                       self.Timer.MAXIMUM.value)
             # Register new value
-            self.set_param(new, Parameter.PERIOD, modIot.Measure.VALUE)
+            self.set_param(new, self.Parameter.PERIOD, modIot.Measure.VALUE)
             # Publish new value
-            self.publish_param(Parameter.PERIOD, modIot.Measure.VALUE)
+            self.publish_param(self.Parameter.PERIOD, modIot.Measure.VALUE)
             # Apply new value
             if self._timer:
                 self._timer.period = new
 
 ###############################################################################
-# MQTT actions
+# Cloud actions
 ###############################################################################
+    def _setup_cloud(self) -> NoReturn:
+        """Define cloud management."""
+        section = self.CloudConfig.SECTION.value
+        # self._clientid = f'{socket.gethostname()}_{self.did}'
+        # self._host = self.config.option(self.CloudConfig.OPTION_HOST.value,
+        #                                 section,
+        #                                 self.CloudConfig.DEFAULT_HOST.value)
+        # self._port = self.config.option(self.CloudConfig.OPTION_PORT.value,
+        #                                 section,
+        #                                 self.CloudConfig.DEFAULT_PORT.value)
+        # self._mqtt_api_key = self.config.option(
+        #     self.CloudConfig.OPTION_MQTT_API_KEY.value, section)
+        # self._channel_id = self.config.option(
+        #     self.CloudConfig.OPTION_CHANNEL_ID.value, section)
+        # self._write_api_key = self.config.option(
+        #     self.CloudConfig.OPTION_WRITE_API_KEY.value, section)
+        self._cloudprm[self.CloudConfig.CLIENT_ID.name] = \
+            self.CloudConfig.CLIENT_ID.value + f'_{self.did}'
+        self._cloudprm[self.CloudConfig.OPTION_HOST.name] = \
+            self.config.option(self.CloudConfig.OPTION_HOST.value,
+                               section,
+                               self.CloudConfig.DEFAULT_HOST.value)
+        self._cloudprm[self.CloudConfig.OPTION_PORT.name] = \
+            self.config.option(self.CloudConfig.OPTION_PORT.value,
+                               section,
+                               self.CloudConfig.DEFAULT_PORT.value)
+        self._cloudprm[self.CloudConfig.OPTION_MQTT_API_KEY.name] = \
+            self.config.option(self.CloudConfig.OPTION_MQTT_API_KEY.value,
+                               section)
+        self._cloudprm[self.CloudConfig.OPTION_CHANNEL_ID.name] = \
+            self.config.option(self.CloudConfig.OPTION_CHANNEL_ID.value,
+                               section)
+        self._cloudprm[self.CloudConfig.OPTION_WRITE_API_KEY.name] = \
+            self.config.option(self.CloudConfig.OPTION_WRITE_API_KEY.value,
+                               section)
+
+
     def publish_fields(self):
         """Publish values in cache."""
         # for field in self.Fields:
@@ -149,6 +188,7 @@ class Device(modIot.Plugin):
 ###############################################################################
     def begin(self):
         super().begin()
+        self._setup_cloud()
         self.publish_status()
 
     def finish(self):
@@ -182,9 +222,10 @@ class Device(modIot.Plugin):
                      device: modIot.Plugin) -> NoReturn:
         """Process data originating in other device."""
         # Receive data from server
-        if device.did == Parameter.TEMPERATURE_DEVICE.value:
+        if device.did == self.Source.TEMPERATURE_SYSTEM_DID.value:
             # Process SoC temperature
-            if parameter == Parameter.TEMPERATURE_PARAM.value \
+            device_param = self.Source.TEMPERATURE_SYSTEM_PARAMETER.value
+            if parameter == device.Parameter[device_param].value \
                     and measure == modIot.Measure.VALUE.value:
                 try:
                     temperature = float(value)
@@ -194,5 +235,5 @@ class Device(modIot.Plugin):
                 else:
                     self._fields[self.Fields.TEMPERATURE_SERVER.value] \
                         = temperature
-                    log = f'Received SoC {temperature=}°C'
+                    log = f'Received SoC {temperature=}'
                     self._logger.debug(log)
