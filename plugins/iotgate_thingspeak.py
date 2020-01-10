@@ -44,10 +44,7 @@ class Device(modIot.Plugin):
         CHANNEL_ID = 'channel'
 
     class Source(Enum):
-        """Enumeration of plugins parameters for processing their
-        MQTT messages.
-
-        """
+        """Enumeration of depending plugins parameters."""
         TEMPERATURE_SYSTEM_DID = 'server'
         COOLING_FAN_DID = 'sfan'
 
@@ -68,7 +65,7 @@ class Device(modIot.Plugin):
         DEFAULT_HOST = 'mqtt.thingspeak.com'
         DEFAULT_PORT = 1883
         CLIENT_ID = socket.gethostname()
-        FAN_STATUS_PREFIX = 'FAN State: '
+        FAN_STATUS_PREFIX = 'Fan-'
 
     class CloudBuffer(Enum):
         """Semantics of used cloud status and fields. Max. 8 fields allowed."""
@@ -100,7 +97,7 @@ class Device(modIot.Plugin):
     @property
     def did(self):
         """Device identifier."""
-        return self.get_did(__name__)
+        return modIot.get_did(__name__)
 
     @property
     def period(self) -> float:
@@ -145,9 +142,9 @@ class Device(modIot.Plugin):
                                section,
                                self.CloudConfig.DEFAULT_HOST.value)
         self._cloudprm[self.CloudConfig.OPTION_PORT.name] = \
-            self.config.option(self.CloudConfig.OPTION_PORT.value,
-                               section,
-                               self.CloudConfig.DEFAULT_PORT.value)
+            int(self.config.option(self.CloudConfig.OPTION_PORT.value,
+                                   section,
+                                   self.CloudConfig.DEFAULT_PORT.value))
         self._cloudprm[self.CloudConfig.OPTION_MQTT_API_KEY.name] = \
             self.config.option(self.CloudConfig.OPTION_MQTT_API_KEY.value,
                                section)
@@ -197,26 +194,26 @@ class Device(modIot.Plugin):
                 'publish',
                 self._cloudprm[self.CloudConfig.OPTION_WRITE_API_KEY.name],
             ]
-            topic = self.Separator.TOPIC.value.join(items)
             msg = f'Publishing to ThingSpeak'
             try:
-                # mqttpublish.single(
-                #     topic,
-                #     payload=payload,
-                #     hostname=self._cloudprm[self.CloudConfig.OPTION_HOST.name],
-                #     port=self._cloudprm[self.CloudConfig.OPTION_PORT.name],
-                #     auth={
-                #         'username':
-                #             self._cloudprm[self.CloudConfig.CLIENT_ID.name],
-                #         'password':
-                #             self._cloudprm[self.CloudConfig.OPTION_MQTT_API_KEY.name],
-                #     }
-                # )
+                topic = self.Separator.TOPIC.value.join(items)
+                mqttpublish.single(
+                    topic,
+                    payload=payload,
+                    hostname=self._cloudprm[self.CloudConfig.OPTION_HOST.name],
+                    port=self._cloudprm[self.CloudConfig.OPTION_PORT.name],
+                    auth={
+                        'username':
+                            self._cloudprm[self.CloudConfig.CLIENT_ID.name],
+                        'password':
+                            self._cloudprm[self.CloudConfig.OPTION_MQTT_API_KEY.name],
+                    }
+                )
                 self._buffer[self.CloudBuffer.FAN_STATUS.value] = None
                 log = f'{msg}, {channel=}, message: {payload}'
                 self._logger.debug(log)
             except Exception as errmsg:
-                log = f'Publishing to ThingSpeak failed with error {errmsg}'
+                log = f'Publishing to ThingSpeak failed with error: {errmsg}'
                 self._logger.exception(log)
         else:
             self._logger.debug('Nothing published to ThingSpeak')
@@ -228,6 +225,7 @@ class Device(modIot.Plugin):
         super().begin()
         self._setup_cloud()
         self.publish_status()
+        self._timer.start()
 
     def finish(self):
         self._timer.stop()
@@ -241,7 +239,20 @@ class Device(modIot.Plugin):
                             value: str,
                             parameter: Optional[str],
                             measure: Optional[str]) -> NoReturn:
-        """Process command intended just for this device."""
+        """Process command for this device only.
+
+        Arguments
+        ---------
+        value
+            Payload from an MQTT message.
+        parameter
+            Parameter taken from an MQTT topic corresponding to some item value
+            from Parameter enumeration.
+        measure
+            Measure taken from an MQTT topic corresponding to some item value
+            from Measure enumeration.
+
+        """
         # Generic commands
         if parameter is None and measure is None:
             # Publish status
@@ -258,8 +269,23 @@ class Device(modIot.Plugin):
                      parameter: Optional[str],
                      measure: Optional[str],
                      device: modIot.Plugin) -> NoReturn:
-        """Process data originating in other device."""
-        # Process data from plugin 'system'
+        """Process data from any device except this one.
+
+        Arguments
+        ---------
+        value
+            Payload from an MQTT message.
+        parameter
+            Parameter taken from an MQTT topic corresponding to some item value
+            from Parameter enumeration.
+        measure
+            Measure taken from an MQTT topic corresponding to some item value
+            from Measure enumeration.
+        device
+            Object of a sourcing device (plugin), which sent an MQTT message.
+
+        """
+        # Process data from plugin 'server'
         if device.did == self.Source.TEMPERATURE_SYSTEM_DID.value:
             # Process SoC temperature
             if parameter == device.Parameter.TEMPERATURE.value \
@@ -280,7 +306,22 @@ class Device(modIot.Plugin):
                        parameter: Optional[str],
                        measure: Optional[str],
                        device: modIot.Plugin) -> NoReturn:
-        """Process status originating in other device."""
+        """Process status of any device except this one.
+
+        Arguments
+        ---------
+        value
+            Payload from an MQTT message.
+        parameter
+            Parameter taken from an MQTT topic corresponding to some item value
+            from Parameter enumeration.
+        measure
+            Measure taken from an MQTT topic corresponding to some item value
+            from Measure enumeration.
+        device
+            Object of a sourcing device (plugin), which sent an MQTT message.
+
+        """
         # Process status from 'fan'
         if device.did == self.Source.COOLING_FAN_DID.value:
             # Process SoC temperature published by plugin 'system'

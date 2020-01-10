@@ -79,8 +79,8 @@ class Device(modIot.Plugin):
         """Parameters for randomly generated temperature on Windows."""
         RESOLUTION = 10  # int: Resolution of generated temperature
         DEFAULT = 75.0   # Maximal allowed temperature
-        MINIMUM = 40.0   # Interval for random temperatures
-        MAXIMUM = 70.0
+        MINIMUM = 00.0   # Interval for random temperatures
+        MAXIMUM = 75.0
 
     def __init__(self) -> NoReturn:
         super().__init__()
@@ -157,10 +157,10 @@ class Device(modIot.Plugin):
             modIot.Category.DATA,
             self.Parameter.TEMPERATURE,
             modIot.Measure.VALUE)
-        log = self.get_log(message,
-                           modIot.Category.DATA,
-                           self.Parameter.TEMPERATURE,
-                           modIot.Measure.VALUE)
+        log = modIot.get_log(message,
+                             modIot.Category.DATA,
+                             self.Parameter.TEMPERATURE,
+                             modIot.Measure.VALUE)
         self._logger.debug(log)
         self.mqtt_client.publish(message, topic)
 
@@ -172,10 +172,10 @@ class Device(modIot.Plugin):
             modIot.Category.DATA,
             self.Parameter.TEMPERATURE,
             modIot.Measure.PERCENTAGE)
-        log = self.get_log(message,
-                           modIot.Category.DATA,
-                           self.Parameter.TEMPERATURE,
-                           modIot.Measure.PERCENTAGE)
+        log = modIot.get_log(message,
+                             modIot.Category.DATA,
+                             self.Parameter.TEMPERATURE,
+                             modIot.Measure.PERCENTAGE)
         self._logger.debug(log)
         self.mqtt_client.publish(message, topic)
 
@@ -273,7 +273,20 @@ class Device(modIot.Plugin):
                             value: str,
                             parameter: Optional[str],
                             measure: Optional[str]) -> NoReturn:
-        """Process command intended just for this device."""
+        """Process command for this device only.
+
+        Arguments
+        ---------
+        value
+            Payload from an MQTT message.
+        parameter
+            Parameter taken from an MQTT topic corresponding to some item value
+            from Parameter enumeration.
+        measure
+            Measure taken from an MQTT topic corresponding to some item value
+            from Measure enumeration.
+
+        """
         # Generic commands
         if parameter is None and measure is None:
             # Publish status

@@ -81,7 +81,7 @@ class Device(modIot.Plugin):
     @property
     def did(self) -> str:
         """Device identifier."""
-        return self.get_did(__name__)
+        return modIot.get_did(__name__)
 
     @property
     def period(self) -> float:
@@ -178,8 +178,9 @@ class Device(modIot.Plugin):
         if category == modIot.Category.COMMAND.value:
             if device_id in self.devices:
                 device = self.devices[device_id]
-                device.userdata = userdata
-                device.process_own_command(payload, parameter, measure)
+                if device.process_own_command:
+                    device.userdata = userdata
+                    device.process_own_command(payload, parameter, measure)
         # Process foreign status, data, and command (interdevice dependency)
         else:
             for plugin in self.devices.values():
@@ -187,18 +188,24 @@ class Device(modIot.Plugin):
                     continue
                 device = self.devices[device_id]  # Source device
                 plugin.userdata = userdata
-                if category == modIot.Category.STATUS.value:
-                    plugin.process_status(payload, parameter, measure, device)
-                elif category == modIot.Category.DATA.value:
-                    plugin.process_data(payload, parameter, measure, device)
-                elif category == modIot.Category.COMMAND.value:
-                    plugin.process_command(payload, parameter, measure, device)
+                try:
+                    if category == modIot.Category.STATUS.value:
+                        plugin.process_status(payload, parameter, measure,
+                                              device)
+                    elif category == modIot.Category.DATA.value:
+                        plugin.process_data(payload, parameter, measure,
+                                            device)
+                    elif category == modIot.Category.COMMAND.value:
+                        plugin.process_command(payload, parameter, measure,
+                                               device)
+                except AttributeError:
+                    continue
 
     def publish_connect(self, status: modIot.Status):
         """Publish connection status to MQTT broker."""
         message = status.value
         topic = self.get_topic(modIot.Category.STATUS)
-        log = self.get_log(message, modIot.Category.STATUS)
+        log = modIot.get_log(message, modIot.Category.STATUS)
         self._logger.debug(log)
         self.mqtt_client.publish(message, topic)
 
@@ -239,7 +246,20 @@ class Device(modIot.Plugin):
                             value: str,
                             parameter: Optional[str],
                             measure: Optional[str]) -> NoReturn:
-        """Process command intended just for this device."""
+        """Process command for this device only.
+
+        Arguments
+        ---------
+        value
+            Payload from an MQTT message.
+        parameter
+            Parameter taken from an MQTT topic corresponding to some item value
+            from Parameter enumeration.
+        measure
+            Measure taken from an MQTT topic corresponding to some item value
+            from Measure enumeration.
+
+        """
         # Generic commands
         if parameter is None and measure is None:
             # Publish status

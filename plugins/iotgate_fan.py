@@ -39,10 +39,12 @@ def fan_command(func):
     """Decorator for handling commands for the fan."""
     def _decorator(self):
         command = func(self)
-        self.set_param(self.activity, self.Parameter.ACTIVITY)
-        self.publish_param(self.Parameter.ACTIVITY)
-        log = f'Executed fan command {command.name}'
-        self.logger.info(log)
+        # Publish only at real command execution
+        if command:
+            self.set_param(self.activity, self.Parameter.ACTIVITY)
+            self.publish_param(self.Parameter.ACTIVITY)
+            log = f'Executed fan command {command.name}'
+            self.logger.info(log)
     return _decorator
 
 
@@ -55,8 +57,10 @@ class Device(modIot.Plugin):
         ACTIVITY = 'run'
         PERCENTAGE_ON = 'percon'
         PERCENTAGE_OFF = 'percoff'
-        DEVICE_ID = 'server'
-        TEMPERATURE = 'temp'
+
+    class Source(Enum):
+        """Enumeration of depending plugins parameters."""
+        TEMPERATURE_SYSTEM_DID = 'server'
 
     class GpioPin(Enum):
         """Utilized pins of the microcomputer."""
@@ -77,8 +81,10 @@ class Device(modIot.Plugin):
     def __init__(self):
         super().__init__()
         self._logger = logging.getLogger(' '.join([__name__, __version__]))
-        self._pi = classPi()  # Handler of microcomputer GPIO
         self._percentage = None  # Cached received SoC temperature percentage
+        # Initialize fan
+        self._pi = classPi()  # Handler of microcomputer GPIO
+        self._pi.pin_off(self.GpioPin.FAN.value)  # Fan pin to OUTPUT and LOW
         # Device parameters
         self.set_param(self.GpioPin.FAN.value,
                        self.Parameter.CONTROL_PIN)
@@ -201,16 +207,22 @@ class Device(modIot.Plugin):
             self.fan_process()
 
     @fan_command
-    def fan_on(self) -> modIot.Command:
-        """Turn the fan ON."""
-        self._pi.pin_on(self.GpioPin.FAN.value)
-        return modIot.Command.TURN_ON
+    def fan_on(self) -> Optional[modIot.Command]:
+        """Turn the fan ON if it is OFF."""
+        pin = self.GpioPin.FAN.value
+        if self._pi.is_pin_off(pin):
+            self._pi.pin_on(pin)
+            return modIot.Command.TURN_ON
+        return None
 
     @fan_command
-    def fan_off(self) -> modIot.Command:
-        """Turn the fan OFF."""
-        self._pi.pin_off(self.GpioPin.FAN.value)
-        return modIot.Command.TURN_OFF
+    def fan_off(self) -> Optional[modIot.Command]:
+        """Turn the fan OFF if it is ON."""
+        pin = self.GpioPin.FAN.value
+        if self._pi.is_pin_on(pin):
+            self._pi.pin_off(pin)
+            return modIot.Command.TURN_OFF
+        return None
 
     @fan_command
     def fan_toggle(self) -> modIot.Command:
@@ -218,14 +230,15 @@ class Device(modIot.Plugin):
         self._pi.pin_toggle(self.GpioPin.FAN.value)
         return modIot.Command.TOGGLE
 
-    def fan_process(self) -> NoReturn:
+    def fan_process(self) -> Optional[modIot.Command]:
         """Process recent good received temperature percentage from MQTT."""
-        # Start cooling at idle fan
-        if self._pi.is_pin_off and self._percentage >= self.percon:
-            self.fan_on()
-        # Stop cooling at active fan
-        if self._pi.is_pin_on and self._percentage <= self.percoff:
-            self.fan_off()
+        # Start cooling
+        if self._percentage >= self.percon:
+            return self.fan_on()
+        # Stop cooling
+        if self._percentage <= self.percoff:
+            return self.fan_off()
+        return None
 
 ###############################################################################
 # General actions
@@ -238,7 +251,20 @@ class Device(modIot.Plugin):
                             value: str,
                             parameter: Optional[str],
                             measure: Optional[str]) -> NoReturn:
-        """Process command intended just for this device."""
+        """Process command for this device only.
+
+        Arguments
+        ---------
+        value
+            Payload from an MQTT message.
+        parameter
+            Parameter taken from an MQTT topic corresponding to some item value
+            from Parameter enumeration.
+        measure
+            Measure taken from an MQTT topic corresponding to some item value
+            from Measure enumeration.
+
+        """
         # Generic commands
         if parameter is None and measure is None:
             # Publish status
@@ -277,20 +303,34 @@ class Device(modIot.Plugin):
                      parameter: Optional[str],
                      measure: Optional[str],
                      device: modIot.Plugin) -> NoReturn:
-        """Process data originating in other device."""
-        # Ignore other devices but system temperature measurement
-        if device.did != self.Parameter.DEVICE_ID.value:
-            return
-        # Process temperature percentage
-        if parameter == self.Parameter.TEMPERATURE.value \
-                and measure == modIot.Measure.PERCENTAGE.value:
-            try:
-                percentage = float(value)
-            except (TypeError, ValueError):
-                log = f'Ignored invalid temperature percentage {value=}'
-                self._logger.warning(log)
-            else:
-                self._percentage = percentage
-                log = f'Process temperature {percentage=}%'
-                self._logger.debug(log)
-                self.fan_process()
+        """Process data from any device except this one.
+
+        Arguments
+        ---------
+        value
+            Payload from an MQTT message.
+        parameter
+            Parameter taken from an MQTT topic corresponding to some item value
+            from Parameter enumeration.
+        measure
+            Measure taken from an MQTT topic corresponding to some item value
+            from Measure enumeration.
+        device
+            Object of a sourcing device (plugin), which sent an MQTT message.
+
+        """
+        # Process data from plugin 'system'
+        if device.did == self.Source.TEMPERATURE_SYSTEM_DID.value:
+            # Process temperature percentage
+            if parameter == device.Parameter.TEMPERATURE.value \
+                    and measure == modIot.Measure.PERCENTAGE.value:
+                try:
+                    percentage = float(value)
+                except (TypeError, ValueError):
+                    log = f'Ignored invalid temperature percentage {value=}'
+                    self._logger.warning(log)
+                else:
+                    self._percentage = percentage
+                    log = f'Process temperature {percentage=}%'
+                    self._logger.debug(log)
+                    self.fan_process()
