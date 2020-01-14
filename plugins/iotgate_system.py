@@ -258,10 +258,12 @@ class Device(modIot.Plugin):
     def begin(self):
         super().begin()
         self.publish_status()
-        self._timer.start()
+        if self._timer:
+            self._timer.start()
 
     def finish(self):
-        self._timer.stop()
+        if self._timer:
+            self._timer.stop()
         super().finish()
 
     def _callback_timer_temperature(self):

@@ -28,6 +28,7 @@ import logging
 import socket
 from enum import Enum
 from typing import Optional, NoReturn
+from time import time
 
 # Custom library modules
 import paho.mqtt.publish as mqttpublish
@@ -42,6 +43,7 @@ class Device(modIot.Plugin):
         """Enumeration of plugin parameters for MQTT publishing topics."""
         PERIOD = 'period'
         CHANNEL_ID = 'channel'
+        CLOUD_DATA = 'cloud'
 
     class Source(Enum):
         """Enumeration of depending plugins parameters."""
@@ -77,6 +79,7 @@ class Device(modIot.Plugin):
         self._logger = logging.getLogger(' '.join([__name__, __version__]))
         self._cloudprm = {}
         self._buffer = {}  # Buffer for cloud fields
+        self._timestamp = None  # Time of recent publishing to cloud
         self._timer = modTimer.Timer(self.period,
                                      self._callback_timer_publish,
                                      name='ThingSpeak')
@@ -159,7 +162,8 @@ class Device(modIot.Plugin):
                        self.Parameter.CHANNEL_ID)
         # Initialize buffer
         for field in self.CloudBuffer:
-            self._buffer[field.value] = None
+            if field.value not in self._buffer.keys():
+                self._buffer[field.value] = None
 
     @property
     def status_fan(self) -> str:
@@ -176,11 +180,31 @@ class Device(modIot.Plugin):
 
     def publish_buffer(self) -> NoReturn:
         """Publish values in buffer."""
+        # Check plugin started
+        if self.CloudConfig.OPTION_CHANNEL_ID.name not in self._cloudprm:
+            self._logger.debug('Plugin not started yet')
+            return
+        # Check publishing period
+        if self._timestamp:
+            elapsed = time() - self._timestamp
+            if elapsed < self.Timer.MINIMUM.value:
+                log = \
+                    f'Ignored frequent publishing after {elapsed:.1f}s' \
+                    f' less than minimum {self.Timer.MINIMUM.value:.1f}s'
+                self._logger.warning(log)
+                return
+            elif self._timer and elapsed < self.period:
+                log = \
+                    f'Timer restarted after {self._timer.elapsed:.1f}s' \
+                    f' less than period {self.period:.1f}s'
+                self._logger.warning(log)
+                self._timer.restart()
         # Construct message payload
         items = []
         for field in self.CloudBuffer:
             field_name = field.value
-            field_value = self._buffer[field_name]
+            field_value = self._buffer[field_name] \
+                if field_name in self._buffer else None
             if field_value:
                 field_item = f'{field_name}={field_value}'
                 items.append(field_item)
@@ -194,29 +218,43 @@ class Device(modIot.Plugin):
                 'publish',
                 self._cloudprm[self.CloudConfig.OPTION_WRITE_API_KEY.name],
             ]
-            msg = f'Publishing to ThingSpeak'
+            msg = f'Publishing to cloud'
             try:
-                topic = self.Separator.TOPIC.value.join(items)
-                mqttpublish.single(
-                    topic,
-                    payload=payload,
-                    hostname=self._cloudprm[self.CloudConfig.OPTION_HOST.name],
-                    port=self._cloudprm[self.CloudConfig.OPTION_PORT.name],
-                    auth={
-                        'username':
-                            self._cloudprm[self.CloudConfig.CLIENT_ID.name],
-                        'password':
-                            self._cloudprm[self.CloudConfig.OPTION_MQTT_API_KEY.name],
-                    }
-                )
-                self._buffer[self.CloudBuffer.FAN_STATUS.value] = None
                 log = f'{msg}, {channel=}, message: {payload}'
                 self._logger.debug(log)
+                # topic = self.Separator.TOPIC.value.join(items)
+                # mqttpublish.single(
+                #     topic,
+                #     payload=payload,
+                #     hostname=self._cloudprm[self.CloudConfig.OPTION_HOST.name],
+                #     port=self._cloudprm[self.CloudConfig.OPTION_PORT.name],
+                #     auth={
+                #         'username':
+                #             self._cloudprm[self.CloudConfig.CLIENT_ID.name],
+                #         'password':
+                #             self._cloudprm[self.CloudConfig.OPTION_MQTT_API_KEY.name],
+                #     }
+                # )
+                self._timestamp = time()
+                self._buffer[self.CloudBuffer.FAN_STATUS.value] = None
             except Exception as errmsg:
-                log = f'Publishing to ThingSpeak failed with error: {errmsg}'
+                log = f'{msg} failed: {errmsg}'
                 self._logger.exception(log)
+            else:
+                # Publish payload to a MQTT broker as DATA
+                message = payload
+                topic = self.get_topic(
+                    modIot.Category.DATA,
+                    self.Parameter.CLOUD_DATA,
+                    modIot.Measure.VALUE)
+                log = modIot.get_log(message,
+                                    modIot.Category.DATA,
+                                    self.Parameter.CLOUD_DATA,
+                                    modIot.Measure.VALUE)
+                self._logger.debug(log)
+                self.mqtt_client.publish(message, topic)
         else:
-            self._logger.debug('Nothing published to ThingSpeak')
+            self._logger.debug('Nothing published to cloud')
 
 ###############################################################################
 # General actions
@@ -225,10 +263,12 @@ class Device(modIot.Plugin):
         super().begin()
         self._setup_cloud()
         self.publish_status()
-        self._timer.start()
+        if self._timer:
+            self._timer.start()
 
     def finish(self):
-        self._timer.stop()
+        if self._timer:
+            self._timer.stop()
         super().finish()
 
     def _callback_timer_publish(self):
@@ -336,6 +376,7 @@ class Device(modIot.Plugin):
                     self.status_fan = modIot.Status(status)
                     log = f'Received {status=}'
                     self._logger.debug(log)
+                    self.publish_buffer()
                 else:
                     log = f'Ignored uknown {status=}'
                     self._logger.warning(log)

@@ -217,18 +217,20 @@ class Device(modIot.Plugin):
         self._setup_mqtt()
         self.publish_connect(modIot.Status.ONLINE)
         self.publish_status()
-        # Start all devices except this one and subscribe to their MQTT topics
+        # Start all plugins except this one and subscribe to their MQTT topics
         for device in self.devices.values():
             if device != self:
                 device.config = self.config
                 device.mqtt_client = self.mqtt_client
                 device.begin()
             self.mqtt_client.subscribe(device.device_topic)
-        self._timer.start()
+        if self._timer:
+            self._timer.start()
 
     def finish(self):
-        self._timer.stop()
-        # Stop all devices plugins
+        if self._timer:
+            self._timer.stop()
+        # Stop all plugins
         for device in self.devices.values():
             if device == self:
                 continue
