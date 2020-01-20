@@ -26,6 +26,7 @@ __email__ = 'libor.gabaj@gmail.com'
 import logging
 from enum import Enum
 from typing import Optional, Any, NoReturn
+import time
 
 # Custom library modules
 from gbj_sw import iot as modIot
@@ -213,6 +214,7 @@ class Device(modIot.Plugin):
 # General actions
 ###############################################################################
     def begin(self):
+        """Start all registered plugins including this one and timers."""
         super().begin()
         self._setup_mqtt()
         self.publish_connect(modIot.Status.ONLINE)
@@ -227,7 +229,23 @@ class Device(modIot.Plugin):
         if self._timer:
             self._timer.start()
 
+    def run(self):
+        """Run loop function of all registered plugins including this one."""
+        # Run all plugins except this one
+        run_cnt = 0
+        for device in self.devices.values():
+            if device != self:
+                try:
+                    device.run()
+                    run_cnt += 1
+                except AttributeError:
+                    continue
+        # No plugin has run method, use default functionality
+        if run_cnt == 0:
+            time.sleep(0.1)
+
     def finish(self):
+        """Stop all registered plugins including this one and timers."""
         if self._timer:
             self._timer.stop()
         # Stop all plugins

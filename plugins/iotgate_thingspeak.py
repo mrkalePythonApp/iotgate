@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """Plugin module representing the cloud service ThingSpeak.
 
-- The module receives data from several MQTT topic, collect it in its buffer,
-  and publish it at once into the cloud at allowed intervals.
+- The module receives data from several MQTT topics, collects it in its buffer,
+  and publishes it at once into the cloud at allowed intervals.
 
 - The plugin receives commands
   - publish status

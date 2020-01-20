@@ -16,7 +16,7 @@
   - SoC temperature percentage from plugin `server`
 
  """
-__version__ = '0.1.0'
+__version__ = '0.2.0'
 __status__ = 'Beta'
 __author__ = 'Libor Gabaj'
 __copyright__ = 'Copyright 2020, ' + __author__
@@ -53,7 +53,7 @@ class Device(modIot.Plugin):
 
     class Parameter(Enum):
         """Enumeration of plugin parameters for MQTT publishing topics."""
-        CONTROL_PIN = 'pin'
+        FAN = 'cfan'
         ACTIVITY = 'run'
         PERCENTAGE_ON = 'percon'
         PERCENTAGE_OFF = 'percoff'
@@ -87,7 +87,8 @@ class Device(modIot.Plugin):
         self._pi.pin_off(self.GpioPin.FAN.value)  # Fan pin to OUTPUT and LOW
         # Device parameters
         self.set_param(self.GpioPin.FAN.value,
-                       self.Parameter.CONTROL_PIN)
+                       self.Parameter.FAN,
+                       modIot.Measure.GPIO)
         self.set_param(self.activity,
                        self.Parameter.ACTIVITY)
         self.set_param(self.percon,

@@ -26,7 +26,6 @@ __maintainer__ = __author__
 __email__ = 'libor.gabaj@gmail.com'
 
 # Standard library modules
-import time
 import os
 import sys
 import argparse
@@ -158,10 +157,10 @@ def setup_plugins():
             plugin_version = plugin_module.__version__
             plugin_id = plugin.did
             devices[plugin_id] = plugin
-            msg = \
+            log = \
                 f'Loaded plugin="{plugin_name}", version={plugin_version}' \
                 f', did="{plugin_id}"'
-            Actuator.logger.info(msg)
+            Actuator.logger.info(log)
         except Exception as errmsg:
             log = f'Cannot load plugin "{module_path}": {errmsg}'
             Actuator.logger.exception(log)
@@ -189,13 +188,13 @@ def loop():
     try:
         Actuator.logger.info('Script loop started')
         while True:
-            time.sleep(0.1)
-        msg = 'finished'
+            Actuator.gate.run()
+        log = 'finished'
     except (KeyboardInterrupt, SystemExit):
-        msg = 'cancelled from keyboard'
+        log = 'cancelled from keyboard'
     finally:
         Actuator.gate.finish()
-        Actuator.logger.info(f'Script {msg}')
+        Actuator.logger.info(f'Script {log}')
 
 
 def main():

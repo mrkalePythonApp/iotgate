@@ -14,3 +14,17 @@ port = 1883
 username = <mqtt_username>
 ; Password of MQTT registered user
 password = <mqtt_password>
+
+[ThingSpeak]
+; Hardcoded default mqtt.thingspeak.com
+host = mqtt.thingspeak.com
+; Hardcoded default 1883
+port = 1883
+; Parameters without hardcoded default value
+mqtt_api_key = <mqtt_api_key>
+; Channel
+channel_id = <channel_id>
+write_api_key = <write_api_key>
+
+[Blynk]
+blynk_api_key = <blynk_auth>
