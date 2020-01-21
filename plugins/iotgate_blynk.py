@@ -61,12 +61,15 @@ class Device(modIot.Plugin):
         """Configuration parameters for INI file."""
         SECTION = 'Blynk'
         OPTION_API_KEY = 'blynk_api_key'
+        HIGH = 1
+        LOW = 0
 
     def __init__(self):
         super().__init__()
         self._logger = logging.getLogger(' '.join([__name__, __version__]))
-        self._blynk = self.config.option(self.CloudConfig.OPTION_API_KEY.value,
-                                         self.CloudConfig.SECTION.value)
+        token = self.config.option(self.CloudConfig.OPTION_API_KEY.value,
+                                   self.CloudConfig.SECTION.value)
+        self._blynk = BlynkLib.Blynk(token)
         # Device parameters
         self.set_param(self.VirtualPin.TEMPERATURE,
                        self.Parameter.TEMPERATURE,
@@ -119,6 +122,9 @@ class Device(modIot.Plugin):
                     log = f'Ignored invalid temperature {value=}'
                     self._logger.warning(log)
                 else:
+                    # Send temperature to a mobile app
+                    pin = self.VirtualPin.TEMPERATURE.value
+                    self._blynk.virtual_write(pin, temperature)
                     log = f'Received SoC {temperature=}'
                     self._logger.debug(log)
 
@@ -145,17 +151,26 @@ class Device(modIot.Plugin):
         """
         # Process status from 'fan'
         if device.did == self.Source.COOLING_FAN_DID.value:
-            # Process SoC temperature published by plugin 'system'
             if parameter == device.Parameter.ACTIVITY.value \
                     and measure is None:
                 status = value.strip()
-                if status in [
-                        modIot.Status.ACTIVE.value,
-                        modIot.Status.IDLE.value,
-                        modIot.Status.UNKNOWN.value,
-                ]:
-                    log = f'Received {status=}'
-                    self._logger.debug(log)
-                else:
-                    log = f'Ignored uknown {status=}'
+                log = f'Fan button set to {status=}'
+                pin = self.VirtualPin.FAN.value
+                value = None
+                if status == modIot.Status.ACTIVE.value:
+                    # Turn fan button ON in a mobile app
+                    value = self.CloudConfig.HIGH
+                elif status == modIot.Status.IDLE.value:
+                    # Turn fan button OFF in a mobile app
+                    value = self.CloudConfig.LOW
+                if value is None:
+                    log = f'Ignored fan {status=}'
                     self._logger.warning(log)
+                else:
+                    self._blynk.virtual_write(pin, value)
+                    self._logger.debug(log)
+
+
+###############################################################################
+# Blynk actions
+###############################################################################

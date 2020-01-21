@@ -364,7 +364,6 @@ class Device(modIot.Plugin):
         """
         # Process status from 'fan'
         if device.did == self.Source.COOLING_FAN_DID.value:
-            # Process SoC temperature published by plugin 'system'
             if parameter == device.Parameter.ACTIVITY.value \
                     and measure is None:
                 status = value.strip()
