@@ -193,7 +193,7 @@ class Device(modIot.Plugin):
                     f' less than minimum {self.Timer.MINIMUM.value:.1f}s'
                 self._logger.warning(log)
                 return
-            elif self._timer and elapsed < self.period:
+            if self._timer and elapsed < self.period:
                 log = \
                     f'Timer restarted after {self._timer.elapsed:.1f}s' \
                     f' less than period {self.period:.1f}s'
@@ -232,14 +232,15 @@ class Device(modIot.Plugin):
                         'username':
                             self._cloudprm[self.CloudConfig.CLIENT_ID.name],
                         'password':
-                            self._cloudprm[self.CloudConfig.OPTION_MQTT_API_KEY.name],
+                            self._cloudprm[
+                                self.CloudConfig.OPTION_MQTT_API_KEY.name],
                     }
                 )
                 self._timestamp = time()
                 self._buffer[self.CloudBuffer.FAN_STATUS.value] = None
-            except Exception as errmsg:
+            except socket.gaierror as errmsg:
                 log = f'{msg} failed: {errmsg}'
-                self._logger.exception(log)
+                self._logger.error(log)
             else:
                 # Publish payload to a MQTT broker as DATA
                 message = payload
@@ -248,9 +249,9 @@ class Device(modIot.Plugin):
                     self.Parameter.CLOUD_DATA,
                     modIot.Measure.VALUE)
                 log = modIot.get_log(message,
-                                    modIot.Category.DATA,
-                                    self.Parameter.CLOUD_DATA,
-                                    modIot.Measure.VALUE)
+                                     modIot.Category.DATA,
+                                     self.Parameter.CLOUD_DATA,
+                                     modIot.Measure.VALUE)
                 self._logger.debug(log)
                 self.mqtt_client.publish(message, topic)
         else:

@@ -84,20 +84,46 @@ class Device(modIot.Plugin):
 ###############################################################################
 # Cloud actions
 ###############################################################################
-    def _setup_cloud(self) -> NoReturn:
-        """Define cloud management parameters."""
+    def _setup_cloud(self) -> bool:
+        """Define cloud management parameters and connect to it.
+
+        Returns
+        -------
+        Flag about successful connection to the cloud.
+
+        """
+        if self._blynk:
+            return True
         token = self.config.option(self.CloudConfig.OPTION_API_KEY.value,
                                    self.CloudConfig.SECTION.value)
-        self._blynk = BlynkLib.Blynk(token)
-
-        @self._blynk.on('V' + str(self.VirtualPin.FAN.value))
-        def fan_button(value):
-            """Blynk handler for receiving fan button value from mobile app."""
-            log = f'Input {value=}'
-            self._logger.debug(log)
+        try:
+            self._blynk = BlynkLib.Blynk(token)
+        except ValueError as errmsg:
+            self._logger.error(errmsg)
+            return False
+        else:
+            @self._blynk.on('V' + str(self.VirtualPin.FAN.value))
+            def _fan_button(value):
+                """Handler for received fan button state from mobile app."""
+                # Propagate button state to the MQTT broker as COMMAND
+                sfan = self.devices[self.Source.COOLING_FAN_DID]
+                topic = sfan.get_topic(modIot.Category.COMMAND)
+                status = abs(int(value[0]))
+                if status == self.CloudConfig.LOW:
+                    message = modIot.Command.TURN_OFF
+                elif status == self.CloudConfig.HIGH:
+                    message = modIot.Command.TURN_ON
+                log = modIot.get_log(message, modIot.Category.COMMAND)
+                self._logger.debug(log)
+                self.mqtt_client.publish(message, topic)
+            return True
 
     def run(self) -> NoReturn:
-        self._blynk.run()
+        """Run loop function for communicating with the cloud."""
+        if self._blynk:
+            self._blynk.run()
+            return True
+        return False
 
 ###############################################################################
 # General actions
@@ -141,7 +167,8 @@ class Device(modIot.Plugin):
                 else:
                     # Send temperature to a mobile app
                     pin = self.VirtualPin.TEMPERATURE.value
-                    self._blynk.virtual_write(pin, temperature)
+                    if self._setup_cloud():
+                        self._blynk.virtual_write(pin, temperature)
                     log = f'Received SoC {temperature=}'
                     self._logger.debug(log)
 
@@ -183,6 +210,6 @@ class Device(modIot.Plugin):
                 if value is None:
                     log = f'Ignored fan {status=}'
                     self._logger.warning(log)
-                else:
+                elif self._setup_cloud():
                     self._blynk.virtual_write(pin, value)
                     self._logger.debug(log)

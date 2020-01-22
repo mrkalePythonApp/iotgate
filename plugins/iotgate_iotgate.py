@@ -12,7 +12,7 @@
   - changing MQTT reconnect timer period within hardcoded range
 
 """
-__version__ = '0.1.0'
+__version__ = '0.2.0'
 __status__ = 'Beta'
 __author__ = 'Libor Gabaj'
 __copyright__ = 'Copyright 2019-2020, ' + __author__
@@ -61,7 +61,6 @@ class Device(modIot.Plugin):
         super().__init__()
         self._logger = logging.getLogger(' '.join([__name__, __version__]))
         # Device attributes
-        self.devices = {}  # List of processed proxy devices
         self._timer = modTimer.Timer(self.period,
                                      self._callback_timer_reconnect,
                                      name='MqttRecon')
@@ -222,6 +221,7 @@ class Device(modIot.Plugin):
         # Start all plugins except this one and subscribe to their MQTT topics
         for device in self.devices.values():
             if device != self:
+                device.devices = self.devices
                 device.config = self.config
                 device.mqtt_client = self.mqtt_client
                 device.begin()
@@ -236,8 +236,8 @@ class Device(modIot.Plugin):
         for device in self.devices.values():
             if device != self:
                 try:
-                    device.run()
-                    run_cnt += 1
+                    if device.run():
+                        run_cnt += 1
                 except AttributeError:
                     continue
         # No plugin has run method, use default functionality
