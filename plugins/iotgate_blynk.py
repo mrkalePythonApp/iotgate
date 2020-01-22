@@ -8,7 +8,6 @@
 
 - The plugin receives commands
   - publish status
-  - reset plugin
 
 - The plugin receives data from MQTT broker
   - SoC temperature in centigrades from plugin `server`.
@@ -69,10 +68,10 @@ class Device(modIot.Plugin):
         self._logger = logging.getLogger(' '.join([__name__, __version__]))
         self._blynk = None
         # Device parameters
-        self.set_param(self.VirtualPin.TEMPERATURE.value,
+        self.set_param(self.get_vpin(self.VirtualPin.TEMPERATURE),
                        self.Parameter.TEMPERATURE,
                        modIot.Measure.GPIO)
-        self.set_param(self.VirtualPin.FAN.value,
+        self.set_param(self.get_vpin(self.VirtualPin.FAN),
                        self.Parameter.FAN,
                        modIot.Measure.GPIO)
 
@@ -80,6 +79,10 @@ class Device(modIot.Plugin):
     def did(self):
         """Device identifier."""
         return modIot.get_did(__name__)
+
+    def get_vpin(self, vpin: Enum) -> str:
+        """Compose virtual pin string from enumeration item."""
+        return 'V' + str(vpin.value)
 
 ###############################################################################
 # Cloud actions
@@ -102,17 +105,17 @@ class Device(modIot.Plugin):
             self._logger.error(errmsg)
             return False
         else:
-            @self._blynk.on('V' + str(self.VirtualPin.FAN.value))
+            @self._blynk.on(self.get_vpin(self.VirtualPin.FAN))
             def _fan_button(value):
                 """Handler for received fan button state from mobile app."""
                 # Propagate button state to the MQTT broker as COMMAND
-                sfan = self.devices[self.Source.COOLING_FAN_DID]
+                sfan = self.devices[self.Source.COOLING_FAN_DID.value]
                 topic = sfan.get_topic(modIot.Category.COMMAND)
                 status = abs(int(value[0]))
-                if status == self.CloudConfig.LOW:
-                    message = modIot.Command.TURN_OFF
-                elif status == self.CloudConfig.HIGH:
-                    message = modIot.Command.TURN_ON
+                if status == self.CloudConfig.LOW.value:
+                    message = modIot.Command.TURN_OFF.value
+                elif status == self.CloudConfig.HIGH.value:
+                    message = modIot.Command.TURN_ON.value
                 log = modIot.get_log(message, modIot.Category.COMMAND)
                 self._logger.debug(log)
                 self.mqtt_client.publish(message, topic)
@@ -132,6 +135,30 @@ class Device(modIot.Plugin):
         super().begin()
         self._setup_cloud()
         self.publish_status()
+
+    def process_own_command(self,
+                            value: str,
+                            parameter: Optional[str],
+                            measure: Optional[str]) -> NoReturn:
+        """Process command for this device only.
+
+        Arguments
+        ---------
+        value
+            Payload from an MQTT message.
+        parameter
+            Parameter taken from an MQTT topic corresponding to some item value
+            from Parameter enumeration.
+        measure
+            Measure taken from an MQTT topic corresponding to some item value
+            from Measure enumeration.
+
+        """
+        # Generic commands
+        if parameter is None and measure is None:
+            # Publish status
+            if value == modIot.Command.GET_STATUS.value:
+                self.publish_status()
 
     def process_data(self,
                      value: str,
