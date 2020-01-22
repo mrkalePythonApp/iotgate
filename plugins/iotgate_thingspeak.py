@@ -222,19 +222,19 @@ class Device(modIot.Plugin):
             try:
                 log = f'{msg}, {channel=}, message: {payload}'
                 self._logger.debug(log)
-                # topic = self.Separator.TOPIC.value.join(items)
-                # mqttpublish.single(
-                #     topic,
-                #     payload=payload,
-                #     hostname=self._cloudprm[self.CloudConfig.OPTION_HOST.name],
-                #     port=self._cloudprm[self.CloudConfig.OPTION_PORT.name],
-                #     auth={
-                #         'username':
-                #             self._cloudprm[self.CloudConfig.CLIENT_ID.name],
-                #         'password':
-                #             self._cloudprm[self.CloudConfig.OPTION_MQTT_API_KEY.name],
-                #     }
-                # )
+                topic = self.Separator.TOPIC.value.join(items)
+                mqttpublish.single(
+                    topic,
+                    payload=payload,
+                    hostname=self._cloudprm[self.CloudConfig.OPTION_HOST.name],
+                    port=self._cloudprm[self.CloudConfig.OPTION_PORT.name],
+                    auth={
+                        'username':
+                            self._cloudprm[self.CloudConfig.CLIENT_ID.name],
+                        'password':
+                            self._cloudprm[self.CloudConfig.OPTION_MQTT_API_KEY.name],
+                    }
+                )
                 self._timestamp = time()
                 self._buffer[self.CloudBuffer.FAN_STATUS.value] = None
             except Exception as errmsg:

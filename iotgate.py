@@ -187,9 +187,9 @@ def loop():
     """Wait for keyboard or system exit."""
     try:
         Actuator.logger.info('Script loop started')
+        log = 'finished'
         while True:
             Actuator.gate.run()
-        log = 'finished'
     except (KeyboardInterrupt, SystemExit):
         log = 'cancelled from keyboard'
     finally:

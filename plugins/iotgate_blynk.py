@@ -49,8 +49,8 @@ class Device(modIot.Plugin):
 
     class VirtualPin(Enum):
         """Enumeration of virtual pins used by the plugin."""
-        TEMPERATURE = 'V1'
-        FAN = 'V2'
+        TEMPERATURE = 1
+        FAN = 3
 
     class Source(Enum):
         """Enumeration of depending plugins parameters."""
@@ -67,14 +67,12 @@ class Device(modIot.Plugin):
     def __init__(self):
         super().__init__()
         self._logger = logging.getLogger(' '.join([__name__, __version__]))
-        token = self.config.option(self.CloudConfig.OPTION_API_KEY.value,
-                                   self.CloudConfig.SECTION.value)
-        self._blynk = BlynkLib.Blynk(token)
+        self._blynk = None
         # Device parameters
-        self.set_param(self.VirtualPin.TEMPERATURE,
+        self.set_param(self.VirtualPin.TEMPERATURE.value,
                        self.Parameter.TEMPERATURE,
                        modIot.Measure.GPIO)
-        self.set_param(self.VirtualPin.FAN,
+        self.set_param(self.VirtualPin.FAN.value,
                        self.Parameter.FAN,
                        modIot.Measure.GPIO)
 
@@ -84,10 +82,29 @@ class Device(modIot.Plugin):
         return modIot.get_did(__name__)
 
 ###############################################################################
+# Cloud actions
+###############################################################################
+    def _setup_cloud(self) -> NoReturn:
+        """Define cloud management parameters."""
+        token = self.config.option(self.CloudConfig.OPTION_API_KEY.value,
+                                   self.CloudConfig.SECTION.value)
+        self._blynk = BlynkLib.Blynk(token)
+
+        @self._blynk.on('V' + str(self.VirtualPin.FAN.value))
+        def fan_button(value):
+            """Blynk handler for receiving fan button value from mobile app."""
+            log = f'Input {value=}'
+            self._logger.debug(log)
+
+    def run(self) -> NoReturn:
+        self._blynk.run()
+
+###############################################################################
 # General actions
 ###############################################################################
     def begin(self):
         super().begin()
+        self._setup_cloud()
         self.publish_status()
 
     def process_data(self,
@@ -159,18 +176,13 @@ class Device(modIot.Plugin):
                 value = None
                 if status == modIot.Status.ACTIVE.value:
                     # Turn fan button ON in a mobile app
-                    value = self.CloudConfig.HIGH
+                    value = self.CloudConfig.HIGH.value
                 elif status == modIot.Status.IDLE.value:
                     # Turn fan button OFF in a mobile app
-                    value = self.CloudConfig.LOW
+                    value = self.CloudConfig.LOW.value
                 if value is None:
                     log = f'Ignored fan {status=}'
                     self._logger.warning(log)
                 else:
                     self._blynk.virtual_write(pin, value)
                     self._logger.debug(log)
-
-
-###############################################################################
-# Blynk actions
-###############################################################################
