@@ -16,7 +16,7 @@ Script provides following functionalities:
   during running.
 
 """
-__version__ = '0.1.0'
+__version__ = '0.2.0'
 __status__ = 'Beta'
 __author__ = 'Libor Gabaj'
 __copyright__ = 'Copyright 2019-2020, ' + __author__
@@ -176,11 +176,16 @@ def setup_plugins():
 
 def setup():
     """Global initialization."""
-    msg = \
+    log = \
         f'Script runs as a ' \
         f'{"service" if Script.service else "program"}'
-    Actuator.logger.info(msg)
-    Actuator.gate.begin()
+    Actuator.logger.info(log)
+    try:
+        Actuator.gate.begin()
+    except AttributeError:
+        log = f'No basic "gate" plugin available'
+        Actuator.logger.error(log)
+        raise FileNotFoundError(log)
 
 
 def loop():
@@ -203,8 +208,12 @@ def main():
     setup_cmdline()
     setup_logger()
     setup_plugins()
-    setup()
-    loop()
+    try:
+        setup()
+        loop()
+    except FileNotFoundError:
+        return
+
 
 
 if __name__ == "__main__":

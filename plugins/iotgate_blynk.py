@@ -19,7 +19,7 @@
     The plugin forwards fan command to appropriate MQTT topic.
 
  """
-__version__ = '0.1.0'
+__version__ = '0.2.0'
 __status__ = 'Beta'
 __author__ = 'Libor Gabaj'
 __copyright__ = 'Copyright 2020, ' + __author__
@@ -105,7 +105,7 @@ class Device(modIot.Plugin):
             self._logger.error(errmsg)
             return False
         else:
-            @self._blynk.on(self.get_vpin(self.VirtualPin.FAN))
+            @self._blynk.ON(self.get_vpin(self.VirtualPin.FAN))
             def _fan_button(value):
                 """Handler for received fan button state from mobile app."""
                 # Propagate button state to the MQTT broker as COMMAND
