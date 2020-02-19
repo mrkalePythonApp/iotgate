@@ -105,7 +105,7 @@ class Device(modIot.Plugin):
             self._logger.error(errmsg)
             return False
         else:
-            @self._blynk.ON(self.get_vpin(self.VirtualPin.FAN))
+            @self._blynk.on(self.get_vpin(self.VirtualPin.FAN))
             def _fan_button(value):
                 """Handler for received fan button state from mobile app."""
                 # Propagate button state to the MQTT broker as COMMAND
