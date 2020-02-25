@@ -16,7 +16,7 @@
   - SoC temperature percentage from plugin `server`
 
  """
-__version__ = '0.2.0'
+__version__ = '0.3.0'
 __status__ = 'Beta'
 __author__ = 'Libor Gabaj'
 __copyright__ = 'Copyright 2020, ' + __author__
@@ -179,7 +179,7 @@ class Device(modIot.Plugin):
     def percoff(self) -> float:
         """Current temperature for turning fan OFF in percentage."""
         val = self.get_param(self.Parameter.PERCENTAGE_OFF,
-                             modIot.Measure.DEFAULT,
+                             modIot.Measure.VALUE,
                              self.PercentageOff.DEFAULT.value)
         return val
 
@@ -267,6 +267,7 @@ class Device(modIot.Plugin):
 
         """
         # Generic commands
+        value = value.strip()
         if parameter is None and measure is None:
             # Publish status
             if value == modIot.Command.GET_STATUS.value:
